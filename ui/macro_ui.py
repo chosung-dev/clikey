@@ -60,7 +60,6 @@ class MacroUI:
         left_frame = tk.Frame(main_frame, bd=2, relief=tk.SUNKEN)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        tk.Label(left_frame, text="매크로 리스트").pack(anchor="w", padx=6, pady=4)
         self.macro_listbox = tk.Listbox(
             left_frame,
             activestyle="none",
