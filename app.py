@@ -31,8 +31,17 @@ def main():
 
     def on_close():
         try:
+            # ▶ 추가: 실행 중이면 먼저 중지 유도
             if getattr(ui, "running", False):
                 ui.stop_execution()
+            # ▶ 추가: 저장 확인(취소하면 종료 중단)
+            try:
+                if hasattr(ui, "_confirm_save_if_dirty"):
+                    if not ui._confirm_save_if_dirty():
+                        return
+            except Exception:
+                pass
+
             t = getattr(ui, "worker_thread", None)
             if isinstance(t, threading.Thread) and t.is_alive():
                 t.join(timeout=1.5)

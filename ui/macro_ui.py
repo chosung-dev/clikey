@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from tkinter import messagebox, simpledialog, filedialog
 import threading
@@ -13,7 +14,7 @@ from core.keyboard_hotkey import (
 )
 from core.mouse import mouse_move_click
 from core.screen import grab_rgb_at
-from core.persistence import is_valid_macro_line, export_data
+from core.persistence import is_valid_macro_line, export_data, load_app_state, save_app_state
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.02
@@ -35,15 +36,20 @@ class MacroUI:
         self.hotkeys = default_hotkeys()
         self.hotkey_handles = {"start": None, "stop": None}
 
+        # 현재 경로 & 더티 플래그
+        self.current_path: str | None = None
+        self.is_dirty: bool = False
+
         # ---------------- 메뉴바 ----------------
         menubar = tk.Menu(root)
 
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="새로 만들기", command=self.new_file)
         file_menu.add_command(label="저장하기", command=self.save_file)
+        file_menu.add_command(label="새로 저장하기", command=self.save_file_as)  # ← 추가
         file_menu.add_command(label="불러오기", command=self.load_file)
         file_menu.add_separator()
-        file_menu.add_command(label="종료", command=root.quit)
+        file_menu.add_command(label="종료", command=self.request_quit)  # ← 변경
         menubar.add_cascade(label="파일", menu=file_menu)
 
         settings_menu = tk.Menu(menubar, tearoff=0)
@@ -110,25 +116,22 @@ class MacroUI:
                 "필요 시 다음을 설치하세요:\n\npip install keyboard"
             ))
 
-    # ---------------- 메뉴 이벤트 ----------------
-    def new_file(self):
-        if self.running:
-            messagebox.showwarning("경고", "실행 중에는 초기화할 수 없습니다. 중지 후 다시 시도하세요.")
-            return
-        self.macro_listbox.delete(0, tk.END)
+        # ▶ 앱 시작 시 마지막 파일 자동 복구
+        try:
+            app_state = load_app_state() or {}
+            last_path = app_state.get("last_file_path")
+            if last_path and os.path.exists(last_path):
+                self._open_path(last_path)
+        except Exception:
+            pass
 
-    def load_file(self):
-        if self.running:
-            messagebox.showwarning("경고", "실행 중에는 불러올 수 없습니다. 중지 후 다시 시도하세요.")
-            return
+    # ▶ 내부: 제목 갱신 및 더티 표기
+    def _update_title(self):
+        name = self.current_path if self.current_path else "Untitled"
+        mark = "*" if self.is_dirty else ""
+        self.root.title(f"Namaan's Macro - {name}{mark}")
 
-        file_path = filedialog.askopenfilename(
-            title="매크로 파일 불러오기",
-            filetypes=[("Macro JSON", "*.json"), ("All files", "*.*")]
-        )
-        if not file_path:
-            return
-
+    def _open_path(self, file_path: str) -> bool:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -154,35 +157,116 @@ class MacroUI:
                 if KEYBOARD_AVAILABLE:
                     register_hotkeys(self.root, self)
 
-            messagebox.showinfo("불러오기 완료", "매크로 파일을 불러왔습니다.")
+            self.current_path = file_path
+            self._mark_dirty(False)
+            try:
+                save_app_state({"last_file_path": file_path})
+            except Exception:
+                pass
+            return True
 
         except Exception as e:
             messagebox.showerror("불러오기 실패", f"파일을 불러오는 중 오류 발생:\n{e}")
+            return False
 
-    def save_file(self):
+    def _mark_dirty(self, flag=True):
+        self.is_dirty = bool(flag)
+        self._update_title()
+
+    # ---------------- 메뉴 이벤트 ----------------
+    def new_file(self):
+        if self.running:
+            messagebox.showwarning("경고", "실행 중에는 초기화할 수 없습니다. 중지 후 다시 시도하세요.")
+            return
+        if not self._confirm_save_if_dirty():
+            return
+        self.macro_listbox.delete(0, tk.END)
+        self.settings = default_settings()
+        self.hotkeys = default_hotkeys()
+        if KEYBOARD_AVAILABLE:
+            register_hotkeys(self.root, self)
+        self.current_path = None
+        self._mark_dirty(False)
+
+    def _collect_export_data(self) -> dict:
+        return export_data(
+            [self.macro_listbox.get(i) for i in range(self.macro_listbox.size())],
+            self.settings,
+            self.hotkeys,
+        )
+
+    # 저장 확인 공통
+    def _confirm_save_if_dirty(self) -> bool:
+        if not self.is_dirty:
+            return True
+        res = messagebox.askyesnocancel("변경사항 저장", "변경사항을 저장하시겠습니까?")
+        if res is None:
+            return False
+        if res is True:
+            return self.save_file()
+        return True  # 저장 안 함
+
+    # 앱 종료 요청 (메뉴/창 닫기 훅에서 사용)
+    def request_quit(self):
+        if self.running:
+            messagebox.showwarning("종료 불가", "실행 중에는 종료할 수 없습니다. 중지 후 다시 시도하세요.")
+            return
+        if not self._confirm_save_if_dirty():
+            return
+        self.root.quit()
+
+
+    def load_file(self):
+        if self.running:
+            messagebox.showwarning("경고", "실행 중에는 불러올 수 없습니다. 중지 후 다시 시도하세요.")
+            return
+        if not self._confirm_save_if_dirty():
+            return
+        file_path = filedialog.askopenfilename(
+            title="매크로 파일 불러오기",
+            filetypes=[("Macro JSON", "*.json"), ("All files", "*.*")]
+        )
+        if not file_path:
+            return
+        if self._open_path(file_path):
+            messagebox.showinfo("불러오기 완료", "매크로 파일을 불러왔습니다.")
+
+    def save_file(self) -> bool:
         if self.running:
             messagebox.showwarning("저장 불가", "실행 중에는 저장할 수 없습니다. 중지 후 다시 시도하세요.")
-            return
+            return False
+        path = self.current_path
+        if not path:
+            return self.save_file_as()
+        try:
+            data = self._collect_export_data()
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._mark_dirty(False)
+            try:
+                save_app_state({"last_file_path": path})
+            except Exception:
+                pass
+            messagebox.showinfo("완료", "저장이 완료되었습니다.")
+            return True
+        except Exception as e:
+            messagebox.showerror("에러", f"저장 실패:\n{e}")
+            return False
 
+    def save_file_as(self) -> bool:
+        if self.running:
+            messagebox.showwarning("저장 불가", "실행 중에는 저장할 수 없습니다. 중지 후 다시 시도하세요.")
+            return False
         path = filedialog.asksaveasfilename(
-            title="매크로 저장하기",
+            title="다른 이름으로 저장",
             defaultextension=".json",
             filetypes=[("Macro JSON", "*.json"), ("All Files", "*.*")]
         )
         if not path:
-            return
-
-        try:
-            data = export_data(
-                [self.macro_listbox.get(i) for i in range(self.macro_listbox.size())],
-                self.settings,
-                self.hotkeys,
-            )
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            messagebox.showinfo("완료", "저장이 완료되었습니다.")
-        except Exception as e:
-            messagebox.showerror("에러", f"저장 실패:\n{e}")
+            return False
+        self.current_path = path
+        self._update_title()
+        return self.save_file()
 
     # ============== 설정창 ==============
     def open_settings(self):
@@ -243,6 +327,7 @@ class MacroUI:
             return
         self.settings["repeat"] = repeat
         self.settings["start_delay"] = delay
+        self._mark_dirty(True)
         self._close_settings(win)
 
     def _close_settings(self, win):
@@ -284,6 +369,7 @@ class MacroUI:
             else:
                 self.stop_key_var.set(keysym)
                 self.hotkeys["stop"] = key_for_keyboard
+            self._mark_dirty(True)
 
             if KEYBOARD_AVAILABLE:
                 register_hotkeys(self.root, self)
@@ -453,6 +539,8 @@ class MacroUI:
                 self.macro_listbox.delete(idx)
         else:
             self.macro_listbox.delete(idx)
+        self._mark_dirty(True)
+
 
     # ---------------- 실행/중지 ----------------
     def run_macros(self):
@@ -621,6 +709,7 @@ class MacroUI:
 
     # -------- 내부 유틸 --------
     def _insert_smart(self, text: str):
+        self._mark_dirty(True)
         sel = self.macro_listbox.curselection()
         if not sel:
             self.macro_listbox.insert(tk.END, text)
