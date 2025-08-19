@@ -21,7 +21,7 @@ pyautogui.PAUSE = 0.02
 class MacroUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("매크로 프로그램")
+        self.root.title("Namaan's Macro")
         self.root.geometry("500x450")
 
         # --------- 실행 상태/설정 ---------
