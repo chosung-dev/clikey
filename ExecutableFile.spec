@@ -1,7 +1,8 @@
-# MacroApp.spec
-# PyInstaller>=6 기준
-# pyinstaller ExecutableFile.spec
 from PyInstaller.utils.hooks import collect_submodules
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--app-name", default="NamaanMacro")
+opts = parser.parse_args()
 
 hidden = [
     "keyboard",
@@ -35,7 +36,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Steam',
+    name=opts.app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
