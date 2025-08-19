@@ -30,6 +30,8 @@ class MacroUI:
         self.stop_flag = False
         self.worker_thread = None
         self.settings_window = None
+        self._drag_moved = False
+        self._drop_preview_insert_at = None  # 드래그 중 계산된 최종 삽입 index(미리보기)
 
         # 설정/단축키 기본값
         self.settings = default_settings()
@@ -73,6 +75,40 @@ class MacroUI:
             selectforeground="black",
         )
         self.macro_listbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+
+        # Listbox 생성 직후(예: self.macro_listbox = tk.Listbox(...) 다음)
+        lb = self.macro_listbox
+
+        # 드래그 상태 & 클립보드 상태
+        self._drag_start_index = None
+        self._drag_preview_index = None
+        self._clipboard = []  # list[str]
+        self._clipboard_is_block = False
+
+        # 드래그&드롭 바인딩
+        lb.bind("<Button-1>", self._on_drag_start, add="+")
+        lb.bind("<B1-Motion>", self._on_drag_motion, add="+")
+        lb.bind("<ButtonRelease-1>", self._on_drag_release, add="+")
+
+        # 드롭 위치 가이드 바 (2px)
+        self._insert_bar = tk.Frame(self.root, height=2, bd=0, highlightthickness=0)
+        self._insert_bar.place_forget()  # 평소엔 숨김
+        self._insert_line_visible = False
+
+        # 단축키(Ctrl+C/X/V, Delete)
+        self.root.bind("<Control-c>", self._on_copy)
+        self.root.bind("<Control-x>", self._on_cut)
+        self.root.bind("<Control-v>", self._on_paste)
+        self.root.bind("<Delete>", self._on_delete)
+
+        self.macro_listbox.bind(
+            "<Configure>",
+            lambda e: (
+                self._show_insert_indicator(self._drag_preview_index)
+                if self._insert_line_visible and self._drag_preview_index is not None
+                else None
+            )
+        )
 
         def on_listbox_click(event):
             lb = self.macro_listbox
@@ -519,28 +555,8 @@ class MacroUI:
                 time.sleep(0.05)
 
     def delete_macro(self):
-        if self.running:
-            messagebox.showwarning("삭제 불가", "실행 중에는 삭제할 수 없습니다. 중지 후 다시 시도하세요.")
-            return
-        sel = self.macro_listbox.curselection()
-        if not sel:
-            messagebox.showwarning("삭제 실패", "선택된 매크로가 없습니다.")
-            return
-        idx = sel[0]
-        line = self.macro_listbox.get(idx)
-        if line.startswith("조건:"):
-            end = idx + 1
-            size = self.macro_listbox.size()
-            while end < size and not self.macro_listbox.get(end).startswith("조건끝"):
-                end += 1
-            if end < size:
-                self.macro_listbox.delete(idx, end)
-            else:
-                self.macro_listbox.delete(idx)
-        else:
-            self.macro_listbox.delete(idx)
-        self._mark_dirty(True)
-
+        # 버튼/메뉴에서 삭제 눌렀을 때도 동일 로직 사용
+        return self._on_delete()
 
     # ---------------- 실행/중지 ----------------
     def run_macros(self):
@@ -708,28 +724,66 @@ class MacroUI:
         win.bind("<Escape>", lambda e: (win.grab_release(), win.destroy()))
 
     # -------- 내부 유틸 --------
-    def _insert_smart(self, text: str):
-        self._mark_dirty(True)
-        sel = self.macro_listbox.curselection()
-        if not sel:
-            self.macro_listbox.insert(tk.END, text)
+    def _insert_smart(self, line: str):
+        lb = self.macro_listbox
+        size = lb.size()
+        sel = lb.curselection()
+
+        # 리스트가 비면 맨 끝에
+        if size == 0:
+            lb.insert(tk.END, line)
+            lb.selection_clear(0, tk.END)
+            lb.selection_set(0)
+            lb.activate(0)
+            lb.see(0)
+            try:
+                self._mark_dirty(True)
+            except Exception:
+                pass
             return
 
-        idx = sel[0]
-        line = self.macro_listbox.get(idx)
+        # 선택 인덱스
+        idx = sel[0] if sel else (size - 1)
+        line_at_idx = lb.get(idx)
 
-        if line.startswith("조건끝"):
-            self.macro_listbox.insert(idx + 1, text)
-            return
+        # 선택한 줄이 속한 '조건 블록' 범위
+        blk = self._find_block_bounds(idx)
 
-        bounds = self._get_condition_bounds_if_any(idx)
-        if bounds:
-            start, end = bounds
-            insert_pos = start + 1 if line.startswith("조건:") else (idx + 1)
-            self.macro_listbox.insert(insert_pos, "  " + text)
-            return
+        if blk is not None:
+            # 블록 내부로 삽입
+            start, end = blk  # end는 footer 인덱스(삽입 시 그 '앞'에 들어감)
 
-        self.macro_listbox.insert(idx + 1, text)
+            if self._is_body(line_at_idx):
+                # ▶ 본문 줄을 선택했으면: 그 줄 '바로 아래' 위치로 (footer 넘지 않게)
+                insert_at = idx + 1
+                if insert_at > end:
+                    insert_at = end
+            else:
+                # ▶ 헤더나 풋터 선택 시: 블록 맨 끝(footer 바로 위)
+                insert_at = end
+
+            # 블록 내부이므로 들여쓰기 보정
+            line = self._ensure_body_indent(line, going_into_block=True)
+
+        else:
+            # 블록 바깥(레벨0): 현재 줄 '바로 아래' (선택 없으면 맨 끝)
+            insert_at = (idx + 1) if sel else size
+            # 레벨0이므로 들여쓰기 제거/보정 필요 없음
+            line = self._ensure_body_indent(line, going_into_block=False)
+
+        # 삽입
+        lb.insert(insert_at, line)
+
+        # 선택/포커스 갱신
+        lb.selection_clear(0, tk.END)
+        lb.selection_set(insert_at)
+        lb.activate(insert_at)
+        lb.see(insert_at)
+
+        try:
+            self._mark_dirty(True)
+        except Exception:
+            pass
 
     def _get_condition_bounds_if_any(self, idx: int):
         size = self.macro_listbox.size()
@@ -776,3 +830,500 @@ class MacroUI:
             except Exception:
                 pass
         self.root.after(0, do)
+
+    def _is_header(self, line: str) -> bool:
+        return line.startswith("조건:")
+
+    def _is_footer(self, line: str) -> bool:
+        return line.startswith("조건끝")
+
+    def _is_body(self, line: str) -> bool:
+        # 레벨1: 공백 2칸으로 시작하는 라인
+        return line.startswith("  ") and not self._is_footer(line) and not self._is_header(line)
+
+    def _find_block_bounds(self, idx: int) -> tuple[int, int] | None:
+        """idx가 블록에 속하면 (start_idx, end_idx) 반환. 아니면 None."""
+        size = self.macro_listbox.size()
+        if size == 0 or idx < 0 or idx >= size:
+            return None
+        line = self.macro_listbox.get(idx)
+        # 헤더에서 시작
+        if self._is_header(line):
+            start = idx
+            j = idx + 1
+            while j < size and not self._is_footer(self.macro_listbox.get(j)):
+                j += 1
+            if j < size and self._is_footer(self.macro_listbox.get(j)):
+                return (start, j)
+            return None  # 잘못된 형식(끝을 못 찾음)
+        # 바디에서 위로 올라가 헤더 찾기
+        if self._is_body(line):
+            i = idx
+            while i >= 0 and not self._is_header(self.macro_listbox.get(i)):
+                i -= 1
+            if i >= 0 and self._is_header(self.macro_listbox.get(i)):
+                return self._find_block_bounds(i)
+            return None
+        # 풋터에서 위로 올라가 헤더 찾기
+        if self._is_footer(line):
+            i = idx
+            while i >= 0 and not self._is_header(self.macro_listbox.get(i)):
+                i -= 1
+            if i >= 0 and self._is_header(self.macro_listbox.get(i)):
+                return (i, idx)
+            return None
+        # 일반(레벨0) 라인은 블록 아님
+        return None
+
+    def _in_same_block(self, i: int, j: int) -> bool:
+        b1 = self._find_block_bounds(i)
+        b2 = self._find_block_bounds(j)
+        return b1 is not None and b1 == b2
+
+    def _nearest_index(self, event) -> int:
+        idx = self.macro_listbox.nearest(event.y)
+        size = self.macro_listbox.size()
+        if idx < 0: idx = 0
+        if idx >= size: idx = size - 1 if size > 0 else 0
+        return idx
+
+    def _on_drag_start(self, event):
+        self._drag_start_index = self._nearest_index(event)
+        self._drag_preview_index = None
+        self._drag_moved = False
+        try:
+            self.macro_listbox.selection_clear(0, tk.END)
+            self.macro_listbox.selection_set(self._drag_start_index)
+            self.macro_listbox.activate(self._drag_start_index)
+        except Exception:
+            pass
+
+    def _on_drag_motion(self, event):
+        if self._drag_start_index is None:
+            self._hide_insert_indicator()
+            return
+
+        lb = self.macro_listbox
+        size = lb.size()
+        idx, at_end = self._nearest_index_allow_end(event)
+
+        # 실제로 움직였는지 판정
+        if not self._drag_moved:
+            if at_end or idx != self._drag_start_index:
+                self._drag_moved = True
+
+        # 소스(끌고 있는 것) 정보
+        src = self._drag_start_index
+        src_line = lb.get(src)
+        src_blk = self._find_block_bounds(src)
+
+        # 타겟 블록 판단
+        tgt_blk = None if at_end else self._find_block_bounds(idx)
+
+        # == 미리보기 insert_at 계산 (붙여넣기 규칙과 동일) ==
+        if at_end:
+            preview_insert_at = size  # 맨 끝
+
+        elif tgt_blk is not None:
+            # 블록 내부: footer 바로 앞(= end index)에 들어간다
+            t_start, t_end = tgt_blk
+            if src_blk is not None and self._is_body(src_line) and tgt_blk == src_blk:
+                # 같은 블록 내부에서 '본문 한 줄' 재배치 → 바디 영역으로 클램프
+                body_start, body_end = t_start + 1, t_end - 1
+                if body_start > body_end:
+                    self._hide_insert_indicator()
+                    return
+                # idx 기준으로 적절히 꽂되, 바디 범위로 한정
+                preview_insert_at = max(body_start, min(idx, body_end + 1))
+            else:
+                # 그 외: 블록 내부로 들어갈 땐 footer 앞
+                preview_insert_at = t_end
+        else:
+            # 블록 외부(레벨0): 커서 위치로
+            preview_insert_at = idx
+
+        # 기록 & 가이드 라인 표시
+        self._drop_preview_insert_at = preview_insert_at
+        self._show_insert_indicator(preview_insert_at)
+
+        # 선택 하이라이트는 보조적(선이 최종 위치를 보여줌)
+        try:
+            lb.selection_clear(0, tk.END)
+            if size > 0:
+                sel_idx = size - 1 if at_end else idx
+                lb.selection_set(sel_idx)
+                lb.activate(sel_idx)
+                lb.see(sel_idx)
+        except Exception:
+            pass
+
+    def _on_drag_release(self, event):
+        try:
+            if self._drag_start_index is None:
+                return
+            if not self._drag_moved:
+                return  # 클릭만 → 무시
+
+            lb = self.macro_listbox
+            size = lb.size()
+            src = self._drag_start_index
+            src_line = lb.get(src)
+            src_blk = self._find_block_bounds(src)
+
+            # 페이로드 구성: 헤더/풋터 선택 시 '블록', 그 외는 '단일 라인'
+            if src_blk is not None and (self._is_header(src_line) or self._is_footer(src_line)):
+                s, e = src_blk
+                payload = [lb.get(i) for i in range(s, e + 1)]
+                payload_is_block = True
+                del_start, del_end = s, e
+            else:
+                payload = [src_line]
+                payload_is_block = False
+                del_start, del_end = src, src
+
+            width = del_end - del_start + 1
+
+            # 드롭 위치 산정
+            idx, at_end = self._nearest_index_allow_end(event)
+            tgt_blk = None if at_end else self._find_block_bounds(idx)
+
+            # === 삽입 위치 & 변환 규칙 (붙여넣기와 동일) ===
+            if tgt_blk is not None:
+                t_start, t_end = tgt_blk
+
+                # 같은 블록에 '블록 전체'를 넣는 건 이상하니 무시
+                if payload_is_block and src_blk == tgt_blk:
+                    return
+
+                if src_blk is not None and self._is_body(src_line) and tgt_blk == src_blk and not payload_is_block:
+                    # 같은 블록 내부 본문 한 줄 재배치
+                    body_start, body_end = t_start + 1, t_end - 1
+                    if body_start > body_end:
+                        return
+                    insert_at = max(body_start, min(idx, body_end + 1))
+                    # 삭제 → 위치 보정
+                    lb.delete(src)
+                    if src < insert_at:
+                        insert_at -= 1
+                    lb.insert(insert_at, payload[0])
+                    lb.selection_clear(0, tk.END)
+                    lb.selection_set(insert_at)
+                    lb.activate(insert_at)
+                    lb.see(insert_at)
+                    try:
+                        self._mark_dirty(True)
+                    except Exception:
+                        pass
+                    return
+
+                # 블록 내부 일반 규칙: footer 바로 앞에 '본문 형태'로 삽입
+                insert_at = t_end
+                # 삭제 전 보정: 삭제 범위가 insert_at보다 위에 있으면 땡겨짐
+                if del_start < insert_at:
+                    insert_at -= width
+
+                final_lines = self._prepare_lines_for_body(payload)
+
+            else:
+                # 레벨0(블록 외부): 미리보기 인덱스가 있으면 그 위치, 없으면 idx/size
+                insert_at = self._drop_preview_insert_at if self._drop_preview_insert_at is not None else (
+                    size if at_end else idx)
+                if insert_at < 0: insert_at = 0
+                if insert_at > size: insert_at = size
+
+                # 삭제 전 보정
+                if del_start < insert_at:
+                    insert_at -= width
+
+                final_lines = self._prepare_lines_for_top(payload, payload_is_block)
+
+            # === 실제 삭제 & 삽입 ===
+            for _ in range(width):
+                lb.delete(del_start)
+
+            # 삽입
+            for i, s in enumerate(final_lines):
+                lb.insert(insert_at + i, s)
+
+            # 선택/포커스
+            lb.selection_clear(0, tk.END)
+            lb.selection_set(max(0, min(lb.size() - 1, insert_at)))
+            lb.activate(max(0, min(lb.size() - 1, insert_at)))
+            lb.see(insert_at)
+
+            try:
+                self._mark_dirty(True)
+            except Exception:
+                pass
+
+        finally:
+            self._hide_insert_indicator()
+            self._drag_start_index = None
+            self._drag_preview_index = None
+            self._drop_preview_insert_at = None
+            self._drag_moved = False
+
+    def _on_copy(self, event=None):
+        lb = self.macro_listbox
+        sel = lb.curselection()
+        if not sel:
+            return "break"
+
+        idx = sel[0]
+        line = lb.get(idx)
+        blk = self._find_block_bounds(idx)
+
+        # 1) 조건 헤더/풋터를 클릭했을 때만 블록 전체 복사
+        if blk is not None and (self._is_header(line) or self._is_footer(line)):
+            s, e = blk
+            self._clipboard = [lb.get(i) for i in range(s, e + 1)]
+            self._clipboard_is_block = True
+            return "break"
+
+        # 2) 그 외(조건 내부 본문 줄, 혹은 레벨0 일반 줄)는 '해당 줄만' 복사
+        self._clipboard = [line]
+        self._clipboard_is_block = False
+        return "break"
+
+    def _on_cut(self, event=None):
+        self._on_copy()
+        self._on_delete()
+        return "break"
+
+    def _on_paste(self, event=None):
+        lb = self.macro_listbox
+        size = lb.size()
+
+        if not self._clipboard:
+            self.root.bell()
+            return "break"
+
+        # 선택 위치
+        sel = lb.curselection()
+        cur_idx = sel[0] if sel else (size if size > 0 else 0)
+
+        cur_block = self._find_block_bounds(cur_idx)
+
+        if cur_block is not None:
+            # ▶ 이미지 조건 블록 내부로 붙여넣기
+            start, end = cur_block
+            insert_at = end  # footer 바로 앞
+
+            # 클립보드를 '본문 레벨'용으로 변환
+            payload = self._prepare_lines_for_body(self._clipboard)
+
+            if not payload:
+                return "break"
+
+            for i, s in enumerate(payload):
+                lb.insert(insert_at + i, s)
+
+            lb.selection_clear(0, tk.END)
+            lb.selection_set(insert_at)
+            lb.activate(insert_at)
+            lb.see(insert_at)
+
+        else:
+            # ▶ 레벨0(블록 외부)로 붙여넣기
+            # - cur_idx가 유효한 아이템이면 그 '아래'에 삽입
+            # - 선택이 없으면 리스트 끝(size)에 삽입
+            insert_at = cur_idx + 1 if (size > 0 and cur_idx < size) else size
+
+            payload = self._prepare_lines_for_top(self._clipboard, self._clipboard_is_block)
+            if not payload:
+                return "break"
+
+            for i, s in enumerate(payload):
+                lb.insert(insert_at + i, s)
+
+            lb.selection_clear(0, tk.END)
+            lb.selection_set(insert_at)
+            lb.activate(insert_at)
+            lb.see(insert_at)
+
+        # 드래그 가이드 숨김(혹시 켜져 있으면)
+        try:
+            self._hide_insert_indicator()
+        except Exception:
+            pass
+
+        # 변경 플래그
+        try:
+            self._mark_dirty(True)
+        except Exception:
+            pass
+
+        return "break"
+
+    def _on_delete(self, event=None):
+        lb = self.macro_listbox
+        sel = lb.curselection()
+        if not sel:
+            return "break"
+
+        idx = sel[0]
+        line = lb.get(idx)
+        blk = self._find_block_bounds(idx)
+
+        if blk is None:
+            # 레벨0(블록 바깥) 단일 라인 삭제
+            lb.delete(idx)
+            size = lb.size()
+            if idx >= size: idx = size - 1
+            if idx >= 0:
+                lb.selection_clear(0, tk.END)
+                lb.selection_set(idx)
+                lb.activate(idx)
+                lb.see(idx)
+            try:
+                self._mark_dirty(True)
+            except Exception:
+                pass
+            return "break"
+
+        # 블록 안에 있음
+        start, end = blk
+        if self._is_header(line) or self._is_footer(line):
+            # 헤더/풋터를 지우면 블록 전체 삭제
+            width = end - start + 1
+            for _ in range(width):
+                lb.delete(start)
+            # 선택 재배치
+            size = lb.size()
+            new_idx = min(start, size - 1)
+            if new_idx >= 0:
+                lb.selection_clear(0, tk.END)
+                lb.selection_set(new_idx)
+                lb.activate(new_idx)
+                lb.see(new_idx)
+        else:
+            # 본문(들여쓴 줄)만 선택된 경우: 해당 줄만 삭제
+            lb.delete(idx)
+            size = lb.size()
+            # 가능하면 같은 블록 내부(헤더~풋터 사이)에 포커스 유지
+            # 삭제로 블록 범위가 바뀌었을 수 있어 재계산
+            new_blk = self._find_block_bounds(start if start < size else size - 1)
+            # 기본 포커스 대상: 방금 위치(뒤로 당겨진 줄)
+            new_idx = idx
+            if new_idx >= size:
+                new_idx = size - 1
+            # 만약 블록이 사라졌거나 범위 밖이면 new_idx만 보정
+            lb.selection_clear(0, tk.END)
+            if new_idx >= 0:
+                lb.selection_set(new_idx)
+                lb.activate(new_idx)
+                lb.see(new_idx)
+
+        # 가이드 라인 숨김 & 더티 표시
+        try:
+            self._hide_insert_indicator()
+        except Exception:
+            pass
+        try:
+            self._mark_dirty(True)
+        except Exception:
+            pass
+
+        return "break"
+
+    def _hide_insert_indicator(self):
+        if self._insert_line_visible:
+            try:
+                self._insert_bar.place_forget()
+            except Exception:
+                pass
+            self._insert_line_visible = False
+
+    def _show_insert_indicator(self, insert_at: int):
+        """insert_at 위치 '바로 위 라인 아래쪽'에 2px 바를 그립니다.
+           insert_at == 0이면 첫 라인의 '위쪽'에 표시."""
+        lb = self.macro_listbox
+        size = lb.size()
+        if size == 0:
+            self._hide_insert_indicator()
+            return
+
+        # 기준 라인 계산
+        line_index = insert_at - 1
+        base_top = False
+        if line_index < 0:
+            line_index = 0
+            base_top = True
+
+        try:
+            lb.see(line_index)
+            bbox = lb.bbox(line_index)  # (x, y, w, h)
+            if not bbox:
+                self._hide_insert_indicator()
+                return
+            x, y, w, h = bbox
+            y_line = y if base_top else (y + h - 1)
+
+            # 가이드 바를 Listbox 좌표계에 맞춰 배치(폭: 전체, 높이: 2px)
+            # 필요하면 색상 바꾸세요. 기본은 시스템 배경색과 대비되는 색이 좋아요.
+            try:
+                self._insert_bar.configure(bg="#2a7fff")  # 눈에 잘 띄는 파란색
+            except Exception:
+                pass
+
+            self._insert_bar.place(in_=lb, x=0, y=y_line, relwidth=1, height=2)
+            self._insert_line_visible = True
+        except Exception:
+            self._hide_insert_indicator()
+
+    def _nearest_index_allow_end(self, event) -> tuple[int, bool]:
+        """Listbox.nearest 대신 사용.
+        - (index, at_end) 반환
+        - 마우스가 마지막 항목의 '아래'로 내려가면 (size, True) → 맨 끝에 삽입"""
+        lb = self.macro_listbox
+        size = lb.size()
+        if size == 0:
+            return 0, True
+        idx = lb.nearest(event.y)
+
+        # 마지막 항목 bbox 기준으로 '더 아래'면 끝으로 취급
+        try:
+            bbox_last = lb.bbox(size - 1)  # (x, y, w, h)
+            if bbox_last:
+                _, y, _, h = bbox_last
+                if event.y > y + h:
+                    return size, True
+        except Exception:
+            pass
+        return idx, False
+
+    def _prepare_lines_for_body(self, lines: list[str]) -> list[str]:
+        """블록 내부(레벨1)에 넣기 위해:
+        - 헤더/풋터는 버림
+        - 들여쓰기(두 칸) 없으면 붙여줌"""
+        out = []
+        for s in lines:
+            if self._is_header(s) or self._is_footer(s):
+                continue
+            if s.startswith("  "):
+                out.append(s)
+            else:
+                out.append("  " + s)
+        return out
+
+    def _prepare_lines_for_top(self, lines: list[str], clipboard_is_block: bool) -> list[str]:
+        """레벨0에 넣기 위해:
+        - 블록이면 원형 유지(헤더/풋터/본문 그대로)
+        - 블록이 아니면, 본문 들여쓰기(두 칸)는 제거"""
+        if clipboard_is_block:
+            return list(lines)
+        out = []
+        for s in lines:
+            if self._is_header(s) or self._is_footer(s):
+                out.append(s)
+            elif s.startswith("  "):
+                out.append(s[2:])
+            else:
+                out.append(s)
+        return out
+
+    def _ensure_body_indent(self, s: str, going_into_block: bool) -> str:
+        """블록 내부에 넣을 때는 본문 들여쓰기(두 칸)를 보장"""
+        if going_into_block and not s.startswith("  ") and not self._is_header(s) and not self._is_footer(s):
+            return "  " + s
+        return s
