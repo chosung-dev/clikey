@@ -19,6 +19,152 @@ from core.persistence import is_valid_macro_line, export_data, load_app_state, s
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.02
 
+
+# ========================= StyledList (Text 기반 Listbox 어댑터) =========================
+class StyledList(tk.Text):
+    """
+    Text 기반으로 Listbox 유사 API를 제공하는 어댑터.
+    - 각 줄을 (raw, desc)로 관리
+    - 화면에는 'raw - desc'로 렌더하며 desc 부분은 초록색 태그로 표시
+    - selection / nearest / bbox / see / insert / delete 등 Listbox 호환 메서드 제공
+    """
+
+    def __init__(self, master, split_cb, join_cb, desc_color="#1a7f37", **kwargs):
+        kwargs.setdefault("wrap", "none")
+        kwargs.setdefault("undo", False)
+        kwargs.setdefault("cursor", "arrow")
+        kwargs.setdefault("height", 1)
+        super().__init__(master, **kwargs)
+
+        self._split_cb = split_cb
+        self._join_cb = join_cb
+        self._desc_color = desc_color
+        self._lines: list[tuple[str, str]] = []  # (raw, desc)
+        self._cur_index: int | None = None
+
+        # 스타일 태그
+        self.tag_configure("desc", foreground=self._desc_color)
+        self.tag_configure("selrow", background="lightblue", foreground="black")
+
+        # 직접 타이핑 방지
+        self.configure(state="disabled")
+
+    # ---------- 내부 렌더 ----------
+    def _render_all(self):
+        # Text의 delete/insert를 직접 호출(우리가 오버라이드한 delete를 피함)
+        self.configure(state="normal")
+        tk.Text.delete(self, "1.0", "end")
+        for raw, desc in self._lines:
+            tk.Text.insert(self, "end", raw)
+            if desc:
+                tk.Text.insert(self, "end", " - ")
+                tk.Text.insert(self, "end", desc, ("desc",))
+            tk.Text.insert(self, "end", "\n")
+        self.configure(state="disabled")
+
+        # 선택 복원
+        if self._cur_index is not None and 0 <= self._cur_index < len(self._lines):
+            self._apply_selection(self._cur_index)
+
+    def _apply_selection(self, idx: int | None):
+        self.tag_remove("selrow", "1.0", "end")
+        if idx is None or idx < 0 or idx >= len(self._lines):
+            self._cur_index = None
+            return
+        self._cur_index = idx
+        ln = idx + 1
+        self.tag_add("selrow", f"{ln}.0", f"{ln}.0 lineend")
+
+    # ---------- Listbox 호환 ----------
+    def size(self):
+        return len(self._lines)
+
+    def get(self, idx: int) -> str:
+        raw, desc = self._lines[idx]
+        return self._join_cb(raw, desc)
+
+    def insert(self, index, s: str):
+        # index: 정수 또는 tk.END
+        if index in (tk.END, "end"):
+            index = len(self._lines)
+        index = max(0, min(int(index), len(self._lines)))
+
+        raw, desc = self._split_cb(s)
+        self._lines.insert(index, (raw, desc))
+        self._render_all()
+
+    def delete(self, start, end=None):
+        """Listbox 호환 삭제: (idx) 또는 (start, end) / (0, tk.END) 등 지원.
+           Text 인덱스("1.0")가 들어와도 방어적으로 처리."""
+        def _to_int(val):
+            if val in (tk.END, "end"):
+                return len(self._lines) - 1
+            if isinstance(val, str):
+                if "." in val:  # "1.0" → 0
+                    try:
+                        return max(0, min(int(val.split(".", 1)[0]) - 1, len(self._lines) - 1))
+                    except Exception:
+                        return 0
+                try:
+                    return int(val)
+                except Exception:
+                    return 0
+            return int(val)
+
+        if end is None:
+            idx = _to_int(start)
+            if 0 <= idx < len(self._lines):
+                del self._lines[idx]
+        else:
+            s = _to_int(start)
+            e = _to_int(end)
+            # 전체 삭제
+            if (start in (0, "0", "1.0")) and (end in (tk.END, "end")):
+                self._lines.clear()
+            else:
+                if s <= e and len(self._lines) > 0:
+                    del self._lines[s:e + 1]
+
+        self._render_all()
+
+    def selection_clear(self, *_):
+        self._apply_selection(None)
+
+    def selection_set(self, idx: int):
+        self._apply_selection(int(idx))
+
+    def activate(self, idx: int):
+        self._apply_selection(int(idx))
+
+    def curselection(self):
+        return () if self._cur_index is None else (self._cur_index,)
+
+    def see(self, idx: int):
+        ln = int(idx) + 1
+        tk.Text.see(self, f"{ln}.0")
+
+    def bbox(self, idx: int):
+        ln = int(idx) + 1
+        info = self.dlineinfo(f"{ln}.0")
+        if not info:
+            return None
+        x, y, w, h, _baseline = info
+        return (x, y, w, h)
+
+    def nearest(self, y: int):
+        idx = self.index(f"@0,{int(y)}")
+        line = int(str(idx).split(".")[0]) - 1
+        if line < 0:
+            line = 0
+        if line >= len(self._lines):
+            line = len(self._lines) - 1 if self._lines else 0
+        return line
+
+    def cget(self, key):
+        return super().cget(key)
+
+
+# =================================== MacroUI ===================================
 class MacroUI:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -48,10 +194,10 @@ class MacroUI:
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="새로 만들기", command=self.new_file)
         file_menu.add_command(label="저장하기", command=self.save_file)
-        file_menu.add_command(label="새로 저장하기", command=self.save_file_as)  # ← 추가
+        file_menu.add_command(label="새로 저장하기", command=self.save_file_as)
         file_menu.add_command(label="불러오기", command=self.load_file)
         file_menu.add_separator()
-        file_menu.add_command(label="종료", command=self.request_quit)  # ← 변경
+        file_menu.add_command(label="종료", command=self.request_quit)
         menubar.add_cascade(label="파일", menu=file_menu)
 
         settings_menu = tk.Menu(menubar, tearoff=0)
@@ -64,20 +210,27 @@ class MacroUI:
         main_frame = tk.Frame(root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # 오른쪽: 버튼들
+        right_frame = tk.Frame(main_frame, bd=2, relief=tk.GROOVE)
+        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=8, pady=8)
+
         # 왼쪽: 매크로 리스트
         left_frame = tk.Frame(main_frame, bd=2, relief=tk.SUNKEN)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.macro_listbox = tk.Listbox(
+        # Listbox 대체: StyledList 사용 (설명만 초록색)
+        self.macro_listbox = StyledList(
             left_frame,
-            activestyle="none",
-            selectbackground="lightblue",
-            selectforeground="black",
+            split_cb=self._split_raw_desc,
+            join_cb=self._join_raw_desc,
+            desc_color="#1a7f37",
         )
         self.macro_listbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
-
-        # Listbox 생성 직후(예: self.macro_listbox = tk.Listbox(...) 다음)
         lb = self.macro_listbox
+
+        # 인라인 설명 편집 (더블클릭)
+        self._inline_edit_entry = None
+        lb.bind("<Double-Button-1>", self._begin_desc_inline_edit, add="+")
 
         # 드래그 상태 & 클립보드 상태
         self._drag_start_index = None
@@ -122,12 +275,9 @@ class MacroUI:
                 if event.y > y_bottom:
                     lb.selection_clear(0, tk.END)
                     return "break"
+
         self.macro_listbox.bind("<Button-1>", on_listbox_click, add="+")
         self.root.bind("<Escape>", lambda e: self.macro_listbox.selection_clear(0, tk.END))
-
-        # 오른쪽: 버튼들
-        right_frame = tk.Frame(main_frame, bd=2, relief=tk.GROOVE)
-        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=8, pady=8)
 
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
         tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
@@ -168,39 +318,59 @@ class MacroUI:
         self.root.title(f"Namaan's Macro - {name}{mark}")
 
     def _open_path(self, file_path: str) -> bool:
+        """JSON 파일을 열어 리스트/설정/단축키를 복원한다.
+        - items: 실행 '원본' 문자열
+        - descriptions: 각 라인의 설명(없으면 빈 문자열)
+        화면에는 '원본 - 설명' 형태로 합쳐서 표시한다.
+        """
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            # 리스트 복원
+            # ---------- 리스트 복원 (원본 + 설명 병합 표시) ----------
             self.macro_listbox.delete(0, tk.END)
-            items = data.get("items", [])
-            for s in items:
-                if is_valid_macro_line(s):
-                    self.macro_listbox.insert(tk.END, s)
 
-            # 설정 복원
+            items = data.get("items", [])
+            descs = data.get("descriptions", [""] * len(items))
+
+            # 길이 보정
+            if len(descs) != len(items):
+                if len(descs) < len(items):
+                    descs = descs + [""] * (len(items) - len(descs))
+                else:
+                    descs = descs[:len(items)]
+
+            # 화면에는 '원본 - 설명'으로 표시
+            for raw, d in zip(items, descs):
+                if is_valid_macro_line(raw):
+                    display = self._join_raw_desc(raw, d)
+                    self.macro_listbox.insert(tk.END, display)
+
+            # ---------- 설정 복원 ----------
             settings = data.get("settings", {})
             if "repeat" in settings:
                 self.settings["repeat"] = int(settings["repeat"])
             if "start_delay" in settings:
                 self.settings["start_delay"] = int(settings["start_delay"])
 
-            # 단축키 복원
+            # ---------- 단축키 복원 ----------
             hotkeys = data.get("hotkeys", {})
             if hotkeys:
                 self.hotkeys.update(hotkeys)
                 if KEYBOARD_AVAILABLE:
                     register_hotkeys(self.root, self)
 
+            # ---------- 경로/상태 ----------
             self.current_path = file_path
             self._mark_dirty(False)
             try:
                 save_app_state({"last_file_path": file_path})
             except Exception:
                 pass
+
             return True
 
+            # noqa: E722
         except Exception as e:
             messagebox.showerror("불러오기 실패", f"파일을 불러오는 중 오류 발생:\n{e}")
             return False
@@ -225,11 +395,17 @@ class MacroUI:
         self._mark_dirty(False)
 
     def _collect_export_data(self) -> dict:
-        return export_data(
-            [self.macro_listbox.get(i) for i in range(self.macro_listbox.size())],
-            self.settings,
-            self.hotkeys,
-        )
+        # 화면 문자열들을 (원본, 설명)으로 분리
+        items_only_raw = []
+        descs = []
+        for i in range(self.macro_listbox.size()):
+            raw, desc = self._split_raw_desc(self.macro_listbox.get(i))
+            items_only_raw.append(raw)
+            descs.append(desc)
+
+        data = export_data(items_only_raw, self.settings, self.hotkeys)
+        data["descriptions"] = descs  # 설명도 함께 저장
+        return data
 
     # 저장 확인 공통
     def _confirm_save_if_dirty(self) -> bool:
@@ -250,7 +426,6 @@ class MacroUI:
         if not self._confirm_save_if_dirty():
             return
         self.root.quit()
-
 
     def load_file(self):
         if self.running:
@@ -328,12 +503,12 @@ class MacroUI:
         self.repeat_var = tk.IntVar(value=self.settings["repeat"])
         tk.Spinbox(frm, from_=0, to=9999, width=8, textvariable=self.repeat_var).grid(row=0, column=1, sticky="w", padx=8)
 
-        tk.Label(frm, text="시작 지연 (초)").grid(row=1, column=0, sticky="w", pady=(8,0))
+        tk.Label(frm, text="시작 지연 (초)").grid(row=1, column=0, sticky="w", pady=(8, 0))
         self.delay_var = tk.IntVar(value=self.settings["start_delay"])
-        tk.Spinbox(frm, from_=0, to=600, width=8, textvariable=self.delay_var).grid(row=1, column=1, sticky="w", padx=8, pady=(8,0))
+        tk.Spinbox(frm, from_=0, to=600, width=8, textvariable=self.delay_var).grid(row=1, column=1, sticky="w", padx=8, pady=(8, 0))
 
         self.start_key_var = tk.StringVar(value=self.hotkeys.get("start") or "")
-        self.stop_key_var  = tk.StringVar(value=self.hotkeys.get("stop")  or "")
+        self.stop_key_var = tk.StringVar(value=self.hotkeys.get("stop") or "")
 
         row = 2
         tk.Label(frm, text="시작 단축키").grid(row=row, column=0, sticky="w", pady=(10, 0))
@@ -468,8 +643,9 @@ class MacroUI:
         tk.Label(frame, textvariable=pos_var, font=("맑은 고딕", 11)).pack(pady=4)
 
         btn_var = tk.StringVar(value="left")
-        btnf = tk.Frame(frame); btnf.pack(pady=6)
-        tk.Radiobutton(btnf, text="왼쪽 클릭",  variable=btn_var, value="left").grid(row=0, column=0, padx=6)
+        btnf = tk.Frame(frame)
+        btnf.pack(pady=6)
+        tk.Radiobutton(btnf, text="왼쪽 클릭", variable=btn_var, value="left").grid(row=0, column=0, padx=6)
         tk.Radiobutton(btnf, text="오른쪽 클릭", variable=btn_var, value="right").grid(row=0, column=1, padx=6)
 
         captured = {"x": None, "y": None}
@@ -478,9 +654,8 @@ class MacroUI:
             x, y = pyautogui.position()
             pos_var.set(f"현재 좌표: ({x}, {y})")
             mouse_win.after(80, tick)
-        tick()
 
-        from core.screen import grab_rgb_at
+        tick()
 
         def capture():
             x, y = pyautogui.position()
@@ -512,7 +687,8 @@ class MacroUI:
         mouse_win.bind("<Control-Return>", lambda e: add_item())
         mouse_win.bind("<Escape>", lambda e: on_close())
 
-        btns = tk.Frame(frame); btns.pack(pady=10)
+        btns = tk.Frame(frame)
+        btns.pack(pady=10)
         tk.Button(btns, text="좌표 캡처 (Enter)", width=16, command=capture).grid(row=0, column=0, padx=5)
         tk.Button(btns, text="추가 (Ctrl+Enter)", width=16, command=add_item).grid(row=0, column=1, padx=5)
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
@@ -596,7 +772,8 @@ class MacroUI:
             loops = 0
 
             while (loop_inf or loops < repeat) and not self.stop_flag:
-                items = [self.macro_listbox.get(i) for i in range(self.macro_listbox.size())]
+                items = [self._split_raw_desc(self.macro_listbox.get(i))[0]
+                         for i in range(self.macro_listbox.size())]
                 i = 0
                 n = len(items)
                 while i < n and not self.stop_flag:
@@ -666,9 +843,12 @@ class MacroUI:
         win.geometry("360x220+560+320")
         win.resizable(False, False)
         win.transient(self.root)
-        win.lift(); win.grab_set(); win.focus_force()
+        win.lift()
+        win.grab_set()
+        win.focus_force()
 
-        frm = tk.Frame(win, padx=10, pady=10); frm.pack(fill="both", expand=True)
+        frm = tk.Frame(win, padx=10, pady=10)
+        frm.pack(fill="both", expand=True)
 
         msg = tk.Label(frm, text="커서를 원하는 위치로 옮긴 뒤\n[좌표/색 캡처] 또는 Enter 키를 누르세요.", justify="center")
         msg.pack(pady=4)
@@ -690,6 +870,7 @@ class MacroUI:
                 r, g, b = rgb
                 rgb_var.set(f"RGB: ({r}, {g}, {b})")
             win.after(120, tick)
+
         tick()
 
         def capture():
@@ -715,7 +896,8 @@ class MacroUI:
                 pass
             win.destroy()
 
-        btns = tk.Frame(frm); btns.pack(pady=8)
+        btns = tk.Frame(frm)
+        btns.pack(pady=8)
         tk.Button(btns, text="좌표/색 캡처 (Enter)", command=capture).grid(row=0, column=0, padx=6)
         tk.Button(btns, text="조건 추가", command=apply_block).grid(row=0, column=1, padx=6)
         tk.Button(frm, text="취소 (Esc)", command=lambda: (win.grab_release(), win.destroy())).pack(pady=4)
@@ -821,6 +1003,7 @@ class MacroUI:
                 self.macro_listbox.see(idx)
             except Exception:
                 pass
+
         self.root.after(0, do)
 
     def _clear_highlight(self):
@@ -829,6 +1012,7 @@ class MacroUI:
                 self.macro_listbox.selection_clear(0, tk.END)
             except Exception:
                 pass
+
         self.root.after(0, do)
 
     def _is_header(self, line: str) -> bool:
@@ -883,8 +1067,10 @@ class MacroUI:
     def _nearest_index(self, event) -> int:
         idx = self.macro_listbox.nearest(event.y)
         size = self.macro_listbox.size()
-        if idx < 0: idx = 0
-        if idx >= size: idx = size - 1 if size > 0 else 0
+        if idx < 0:
+            idx = 0
+        if idx >= size:
+            idx = size - 1 if size > 0 else 0
         return idx
 
     def _on_drag_start(self, event):
@@ -912,7 +1098,7 @@ class MacroUI:
             if at_end or idx != self._drag_start_index:
                 self._drag_moved = True
 
-        # 소스(끌고 있는 것) 정보
+        # 소스 정보
         src = self._drag_start_index
         src_line = lb.get(src)
         src_blk = self._find_block_bounds(src)
@@ -920,23 +1106,20 @@ class MacroUI:
         # 타겟 블록 판단
         tgt_blk = None if at_end else self._find_block_bounds(idx)
 
-        # == 미리보기 insert_at 계산 (붙여넣기 규칙과 동일) ==
+        # == 미리보기 insert_at 계산 ==
         if at_end:
             preview_insert_at = size  # 맨 끝
-
         elif tgt_blk is not None:
             # 블록 내부: footer 바로 앞(= end index)에 들어간다
             t_start, t_end = tgt_blk
             if src_blk is not None and self._is_body(src_line) and tgt_blk == src_blk:
-                # 같은 블록 내부에서 '본문 한 줄' 재배치 → 바디 영역으로 클램프
+                # 같은 블록 내부 본문 한 줄 재배치 → 바디 영역으로 클램프
                 body_start, body_end = t_start + 1, t_end - 1
                 if body_start > body_end:
                     self._hide_insert_indicator()
                     return
-                # idx 기준으로 적절히 꽂되, 바디 범위로 한정
                 preview_insert_at = max(body_start, min(idx, body_end + 1))
             else:
-                # 그 외: 블록 내부로 들어갈 땐 footer 앞
                 preview_insert_at = t_end
         else:
             # 블록 외부(레벨0): 커서 위치로
@@ -946,7 +1129,7 @@ class MacroUI:
         self._drop_preview_insert_at = preview_insert_at
         self._show_insert_indicator(preview_insert_at)
 
-        # 선택 하이라이트는 보조적(선이 최종 위치를 보여줌)
+        # 선택 보조
         try:
             lb.selection_clear(0, tk.END)
             if size > 0:
@@ -962,7 +1145,7 @@ class MacroUI:
             if self._drag_start_index is None:
                 return
             if not self._drag_moved:
-                return  # 클릭만 → 무시
+                return  # 클릭만
 
             lb = self.macro_listbox
             size = lb.size()
@@ -987,7 +1170,7 @@ class MacroUI:
             idx, at_end = self._nearest_index_allow_end(event)
             tgt_blk = None if at_end else self._find_block_bounds(idx)
 
-            # === 삽입 위치 & 변환 규칙 (붙여넣기와 동일) ===
+            # === 삽입 위치 & 변환 규칙 ===
             if tgt_blk is not None:
                 t_start, t_end = tgt_blk
 
@@ -1018,20 +1201,19 @@ class MacroUI:
 
                 # 블록 내부 일반 규칙: footer 바로 앞에 '본문 형태'로 삽입
                 insert_at = t_end
-                # 삭제 전 보정: 삭제 범위가 insert_at보다 위에 있으면 땡겨짐
                 if del_start < insert_at:
                     insert_at -= width
-
                 final_lines = self._prepare_lines_for_body(payload)
 
             else:
-                # 레벨0(블록 외부): 미리보기 인덱스가 있으면 그 위치, 없으면 idx/size
+                # 레벨0(블록 외부)
                 insert_at = self._drop_preview_insert_at if self._drop_preview_insert_at is not None else (
                     size if at_end else idx)
-                if insert_at < 0: insert_at = 0
-                if insert_at > size: insert_at = size
+                if insert_at < 0:
+                    insert_at = 0
+                if insert_at > size:
+                    insert_at = size
 
-                # 삭제 전 보정
                 if del_start < insert_at:
                     insert_at -= width
 
@@ -1041,11 +1223,9 @@ class MacroUI:
             for _ in range(width):
                 lb.delete(del_start)
 
-            # 삽입
             for i, s in enumerate(final_lines):
                 lb.insert(insert_at + i, s)
 
-            # 선택/포커스
             lb.selection_clear(0, tk.END)
             lb.selection_set(max(0, min(lb.size() - 1, insert_at)))
             lb.activate(max(0, min(lb.size() - 1, insert_at)))
@@ -1125,8 +1305,6 @@ class MacroUI:
 
         else:
             # ▶ 레벨0(블록 외부)로 붙여넣기
-            # - cur_idx가 유효한 아이템이면 그 '아래'에 삽입
-            # - 선택이 없으면 리스트 끝(size)에 삽입
             insert_at = cur_idx + 1 if (size > 0 and cur_idx < size) else size
 
             payload = self._prepare_lines_for_top(self._clipboard, self._clipboard_is_block)
@@ -1140,12 +1318,6 @@ class MacroUI:
             lb.selection_set(insert_at)
             lb.activate(insert_at)
             lb.see(insert_at)
-
-        # 드래그 가이드 숨김(혹시 켜져 있으면)
-        try:
-            self._hide_insert_indicator()
-        except Exception:
-            pass
 
         # 변경 플래그
         try:
@@ -1169,7 +1341,8 @@ class MacroUI:
             # 레벨0(블록 바깥) 단일 라인 삭제
             lb.delete(idx)
             size = lb.size()
-            if idx >= size: idx = size - 1
+            if idx >= size:
+                idx = size - 1
             if idx >= 0:
                 lb.selection_clear(0, tk.END)
                 lb.selection_set(idx)
@@ -1200,25 +1373,15 @@ class MacroUI:
             # 본문(들여쓴 줄)만 선택된 경우: 해당 줄만 삭제
             lb.delete(idx)
             size = lb.size()
-            # 가능하면 같은 블록 내부(헤더~풋터 사이)에 포커스 유지
-            # 삭제로 블록 범위가 바뀌었을 수 있어 재계산
-            new_blk = self._find_block_bounds(start if start < size else size - 1)
-            # 기본 포커스 대상: 방금 위치(뒤로 당겨진 줄)
             new_idx = idx
             if new_idx >= size:
                 new_idx = size - 1
-            # 만약 블록이 사라졌거나 범위 밖이면 new_idx만 보정
             lb.selection_clear(0, tk.END)
             if new_idx >= 0:
                 lb.selection_set(new_idx)
                 lb.activate(new_idx)
                 lb.see(new_idx)
 
-        # 가이드 라인 숨김 & 더티 표시
-        try:
-            self._hide_insert_indicator()
-        except Exception:
-            pass
         try:
             self._mark_dirty(True)
         except Exception:
@@ -1259,10 +1422,8 @@ class MacroUI:
             x, y, w, h = bbox
             y_line = y if base_top else (y + h - 1)
 
-            # 가이드 바를 Listbox 좌표계에 맞춰 배치(폭: 전체, 높이: 2px)
-            # 필요하면 색상 바꾸세요. 기본은 시스템 배경색과 대비되는 색이 좋아요.
             try:
-                self._insert_bar.configure(bg="#2a7fff")  # 눈에 잘 띄는 파란색
+                self._insert_bar.configure(bg="#2a7fff")
             except Exception:
                 pass
 
@@ -1327,3 +1488,133 @@ class MacroUI:
         if going_into_block and not s.startswith("  ") and not self._is_header(s) and not self._is_footer(s):
             return "  " + s
         return s
+
+    # (옵션) 전체 라인 편집기 — 현재는 사용 안 함
+    def _begin_inline_edit(self, event):
+        if self._inline_edit_entry is not None:
+            return "break"
+        lb = self.macro_listbox
+        idx = lb.nearest(event.y)
+        size = lb.size()
+        if size == 0 or idx < 0 or idx >= size:
+            return "break"
+        line = lb.get(idx)
+        bbox = lb.bbox(idx)
+        if not bbox:
+            return "break"
+        x, y, w, h = bbox
+        entry = tk.Entry(lb)
+        entry.insert(0, line)
+        entry.select_range(0, tk.END)
+        entry.place(x=0, y=y, width=w, height=h)
+        entry.focus_set()
+        self._inline_edit_entry = entry
+
+        def _cleanup():
+            try:
+                entry.place_forget()
+                entry.destroy()
+            except Exception:
+                pass
+            self._inline_edit_entry = None
+            try:
+                lb.selection_clear(0, tk.END)
+                lb.selection_set(idx)
+                lb.activate(idx)
+                lb.see(idx)
+            except Exception:
+                pass
+
+        def _commit(e=None):
+            new_text = entry.get()
+            lb.delete(idx)
+            lb.insert(idx, new_text)
+            try:
+                self._mark_dirty(True)
+            except Exception:
+                pass
+            _cleanup()
+
+        def _cancel(e=None):
+            _cleanup()
+
+        entry.bind("<Return>", _commit)
+        entry.bind("<Escape>", _cancel)
+        entry.bind("<FocusOut>", _commit)
+        return "break"
+
+    # ---- 화면 문자열 ↔ (원본, 설명) ----
+    def _split_raw_desc(self, s: str) -> tuple[str, str]:
+        """화면 문자열을 (원본, 설명)으로 분리. 마지막 ' - '를 설명 구분자로 사용.
+        원본의 선행 공백(들여쓰기)을 보존한다."""
+        if " - " in s:
+            raw, desc = s.rsplit(" - ", 1)
+            return raw.rstrip("\n"), desc.strip()
+        return s.rstrip("\n"), ""
+
+    def _join_raw_desc(self, raw: str, desc: str) -> str:
+        """(원본, 설명) → 화면 문자열. 설명이 없으면 원본만."""
+        raw = (raw or "").rstrip("\n")
+        desc = (desc or "").strip()
+        return f"{raw} - {desc}" if desc else raw
+
+    # ---- 설명 인라인 편집(더블클릭) ----
+    def _begin_desc_inline_edit(self, event):
+        if self._inline_edit_entry is not None:
+            return "break"
+
+        lb = self.macro_listbox
+        idx = lb.nearest(event.y)
+        size = lb.size()
+        if size == 0 or idx < 0 or idx >= size:
+            return "break"
+
+        # 현재 줄에서 (원본, 기존 설명) 추출
+        line = lb.get(idx)
+        raw, cur_desc = self._split_raw_desc(line)
+
+        # 편집창(Entry)을 그 줄 전체에 깔기
+        bbox = lb.bbox(idx)
+        if not bbox:
+            return "break"
+        x, y, w, h = bbox
+
+        ent = tk.Entry(lb)
+        # 요구: 설명이 없으면 공란으로 시작
+        ent.insert(0, "" if cur_desc == "" else "")
+        ent.place(x=0, y=y, width=w, height=h)
+        ent.focus_set()
+        self._inline_edit_entry = ent
+
+        def _cleanup():
+            try:
+                ent.place_forget()
+                ent.destroy()
+            except Exception:
+                pass
+            self._inline_edit_entry = None
+            try:
+                lb.selection_clear(0, tk.END)
+                lb.selection_set(idx)
+                lb.activate(idx)
+                lb.see(idx)
+            except Exception:
+                pass
+
+        def _commit(e=None):
+            new_desc = ent.get().strip()
+            lb.delete(idx)
+            lb.insert(idx, self._join_raw_desc(raw, new_desc))
+            try:
+                self._mark_dirty(True)
+            except Exception:
+                pass
+            _cleanup()
+
+        def _cancel(e=None):
+            _cleanup()
+
+        ent.bind("<Return>", _commit)
+        ent.bind("<Escape>", _cancel)
+        ent.bind("<FocusOut>", _commit)
+        return "break"
