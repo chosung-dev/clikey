@@ -90,6 +90,8 @@ class MacroUI:
         self.macro_listbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
         self._inline_edit_entry = None
+        self._inline_edit_idx = None
+        self._inline_edit_raw = None
         self.macro_listbox.bind("<Double-Button-1>", self._begin_desc_inline_edit, add="+")
 
         self._drag_start_index = None
@@ -109,6 +111,14 @@ class MacroUI:
         self.root.bind("<Control-x>", self._on_cut)
         self.root.bind("<Control-v>", self._on_paste)
         self.root.bind("<Delete>", self._on_delete)
+
+        self.root.bind_class("Button", "<Button-1>",
+                             lambda e: self._inline_edit_entry and self._inline_edit_commit(), add="+")
+        self.root.bind_class("TButton", "<Button-1>",
+                             lambda e: self._inline_edit_entry and self._inline_edit_commit(), add="+")
+        self.root.bind_all("<Button-1>",
+                           lambda e: (self._inline_edit_entry is not None and e.widget is not self._inline_edit_entry) and
+                                     self._inline_edit_commit(),add="+")
 
         self.macro_listbox.bind(
             "<Configure>",
@@ -132,7 +142,6 @@ class MacroUI:
                     lb.selection_clear(0, tk.END)
                     return "break"
 
-        self.macro_listbox.bind("<Button-1>", on_listbox_click, add="+")
         self.root.bind("<Escape>", lambda e: self.macro_listbox.selection_clear(0, tk.END))
 
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
@@ -899,16 +908,49 @@ class MacroUI:
         return idx
 
     def _on_drag_start(self, event):
+        # 주석 편집 중이면 먼저 커밋
+        if self._inline_edit_entry is not None:
+            self._inline_edit_commit()
+
+        lb = self.macro_listbox
+        size = lb.size()
+
+        # 리스트 비어있으면 그냥 끝
+        if size == 0:
+            try:
+                lb.selection_clear(0, tk.END)
+            except Exception:
+                pass
+            self._drag_start_index = None
+            self._hide_insert_indicator()
+            return "break"
+
+        # ★ 마지막 줄 bbox로 '공란 클릭'인지 먼저 판별
+        bbox_last = lb.bbox(size - 1)  # (x, y, w, h) or None
+        if bbox_last:
+            _, y, _, h = bbox_last
+            y_bottom = y + h
+            if event.y > y_bottom:
+                # 공란: 선택 해제 + 드래그 시작 안 함
+                try:
+                    lb.selection_clear(0, tk.END)
+                except Exception:
+                    pass
+                self._drag_start_index = None
+                self._hide_insert_indicator()
+                return "break"
+
+        # 정상 영역 클릭: 여기서부터 드래그 시작
         self._drag_start_index = self._nearest_index(event)
         self._drag_preview_index = None
         self._drag_moved = False
         try:
-            self.macro_listbox.selection_clear(0, tk.END)
-            self.macro_listbox.selection_set(self._drag_start_index)
-            self.macro_listbox.activate(self._drag_start_index)
+            lb.selection_clear(0, tk.END)
+            lb.selection_set(self._drag_start_index)
+            lb.activate(self._drag_start_index)
         except Exception:
             pass
-        return "break"  # ← 기본 텍스트 선택 방지
+        return "break"  # 기본 Text 선택 방지
 
     def _on_drag_motion(self, event):
         if self._drag_start_index is None:
@@ -1283,55 +1325,69 @@ class MacroUI:
         size = lb.size()
         if size == 0 or idx < 0 or idx >= size:
             return "break"
+        bbox = lb.bbox(idx)
+        if not bbox:
+            return "break"
+        bbox_last = lb.bbox(size - 1)
+        if bbox_last:
+            _, y, _, h = bbox_last
+            if event.y > y + h:
+                # 공란 더블클릭 무시
+                return "break"
+        x, y, w, h = bbox
 
         line = lb.get(idx)
         raw, cur_desc = self._split_raw_desc(line)
 
-        bbox = lb.bbox(idx)
-        if not bbox:
-            return "break"
-        x, y, w, h = bbox
+        # ▶ 컨텍스트 저장
+        self._inline_edit_idx = idx
+        self._inline_edit_raw = raw
 
+        # Entry 생성/배치(살짝 크게 쓰고 싶으면 이전에 안내한 margin 적용)
         ent = tk.Entry(lb)
-        ent.insert(0, cur_desc)  # 기존 설명을 올바르게 프리필
-        lb.update_idletasks()
-        entry_w = max(w + 16, lb.winfo_width() - 4)
-
-        ent.place(x=0, y=y-2, width=entry_w, height=h)
+        ent.insert(0, cur_desc)
+        ent.place(x=0, y=max(0, y - 2), width=max(w + 16, lb.winfo_width() - 8), height=h + 6)
         ent.focus_set()
         self._inline_edit_entry = ent
 
-        def _cleanup():
+        # ▶ 바인딩: Enter=커밋, Esc=취소, 포커스아웃=커밋
+        ent.bind("<Return>", self._inline_edit_commit)
+        ent.bind("<Escape>", lambda e: (self._inline_edit_cleanup(), "break"))
+        ent.bind("<FocusOut>", self._inline_edit_commit)
+
+        return "break"
+
+    def _inline_edit_cleanup(self):
+        ent = self._inline_edit_entry
+        if ent is not None:
             try:
                 ent.place_forget()
                 ent.destroy()
             except Exception:
                 pass
-            self._inline_edit_entry = None
-            try:
-                lb.selection_clear(0, tk.END)
-                lb.selection_set(idx)
-                lb.activate(idx)
-                lb.see(idx)
-            except Exception:
-                pass
+        self._inline_edit_entry = None
+        self._inline_edit_idx = None
+        self._inline_edit_raw = None
 
-        def _commit(e=None):
-            new_desc = ent.get().strip()
+    def _inline_edit_commit(self, *_):
+        # 편집 중이 아니면 무시
+        if self._inline_edit_entry is None or self._inline_edit_idx is None:
+            return
+        lb = self.macro_listbox
+        idx = self._inline_edit_idx
+        raw = self._inline_edit_raw
+        new_desc = self._inline_edit_entry.get().strip()
+        try:
             lb.delete(idx)
             lb.insert(idx, self._join_raw_desc(raw, new_desc))
-            try:
-                self._mark_dirty(True)
-            except Exception:
-                pass
-            _cleanup()
-
-        def _cancel(e=None):
-            _cleanup()
-
-        ent.bind("<Return>", _commit)
-        ent.bind("<Escape>", _cancel)
-        ent.bind("<FocusOut>", _commit)
+            self._mark_dirty(True)
+            # 커밋 후 선택 유지
+            lb.selection_clear(0, tk.END)
+            lb.selection_set(idx)
+            lb.activate(idx)
+            lb.see(idx)
+        finally:
+            self._inline_edit_cleanup()
         return "break"
 
 
