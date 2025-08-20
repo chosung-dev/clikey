@@ -1281,7 +1281,10 @@ class MacroUI:
 
         ent = tk.Entry(lb)
         ent.insert(0, cur_desc)  # 기존 설명을 올바르게 프리필
-        ent.place(x=0, y=y, width=w, height=h)
+        lb.update_idletasks()
+        entry_w = max(w + 16, lb.winfo_width() - 4)
+
+        ent.place(x=0, y=y-2, width=entry_w, height=h)
         ent.focus_set()
         self._inline_edit_entry = ent
 
