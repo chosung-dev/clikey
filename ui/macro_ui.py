@@ -765,11 +765,24 @@ class MacroUI:
 
         if blk is not None:
             start, end = blk
-            if self._is_body(line_at_idx):
-                insert_at = min(idx + 1, end)
+
+            # --- 새 규칙: 선택이 없거나, '조건끝'을 선택했고, 그 블록이 리스트의 마지막일 때
+            #     → 블록 바깥(리스트 맨 아래)에 추가
+            is_footer_selected = self._is_footer(line_at_idx)
+            is_no_selection = not sel
+            is_block_at_bottom = (end == size - 1)
+
+            if is_block_at_bottom and (is_no_selection or is_footer_selected):
+                insert_at = size  # 블록 밖, 맨 아래
+                line = self._ensure_body_indent(line, going_into_block=False)
             else:
-                insert_at = end
-            line = self._ensure_body_indent(line, going_into_block=True)
+                # 기존 동작 유지
+                if self._is_body(line_at_idx):
+                    insert_at = min(idx + 1, end)  # 본문 바로 아래, 풋터 넘지 않기
+                else:
+                    insert_at = end  # 풋터 바로 앞 (블록 내부)
+                line = self._ensure_body_indent(line, going_into_block=True)
+
         else:
             insert_at = (idx + 1) if sel else size
             line = self._ensure_body_indent(line, going_into_block=False)
@@ -895,11 +908,12 @@ class MacroUI:
             self.macro_listbox.activate(self._drag_start_index)
         except Exception:
             pass
+        return "break"  # ← 기본 텍스트 선택 방지
 
     def _on_drag_motion(self, event):
         if self._drag_start_index is None:
             self._hide_insert_indicator()
-            return
+            return "break"
 
         lb = self.macro_listbox
         size = lb.size()
@@ -912,7 +926,6 @@ class MacroUI:
         src = self._drag_start_index
         src_line = lb.get(src)
         src_blk = self._find_block_bounds(src)
-
         tgt_blk = None if at_end else self._find_block_bounds(idx)
 
         if at_end:
@@ -923,7 +936,7 @@ class MacroUI:
                 body_start, body_end = t_start + 1, t_end - 1
                 if body_start > body_end:
                     self._hide_insert_indicator()
-                    return
+                    return "break"
                 preview_insert_at = max(body_start, min(idx, body_end + 1))
             else:
                 preview_insert_at = t_end
@@ -934,14 +947,12 @@ class MacroUI:
         self._show_insert_indicator(preview_insert_at)
 
         try:
-            lb.selection_clear(0, tk.END)
             if size > 0:
-                sel_idx = size - 1 if at_end else idx
-                lb.selection_set(sel_idx)
-                lb.activate(sel_idx)
-                lb.see(sel_idx)
+                lb.see(size - 1 if at_end else idx)
         except Exception:
             pass
+
+        return "break"
 
     def _on_drag_release(self, event):
         try:
@@ -1036,6 +1047,8 @@ class MacroUI:
             self._drag_preview_index = None
             self._drop_preview_insert_at = None
             self._drag_moved = False
+
+        return "break"
 
     def _on_copy(self, event=None):
         lb = self.macro_listbox
