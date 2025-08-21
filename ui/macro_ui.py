@@ -216,6 +216,8 @@ class MacroUI:
                 self.settings["repeat"] = int(settings["repeat"])
             if "start_delay" in settings:
                 self.settings["start_delay"] = int(settings["start_delay"])
+            if "beep_on_finish" in settings:  # ← NEW
+                self.settings["beep_on_finish"] = bool(settings["beep_on_finish"])
 
             hotkeys = data.get("hotkeys", {})
             if hotkeys:
@@ -360,6 +362,16 @@ class MacroUI:
         self.stop_key_var = tk.StringVar(value=self.hotkeys.get("stop") or "")
 
         row = 2
+
+        # NEW: 종료 알림음 설정
+        self.beep_var = tk.BooleanVar(value=bool(self.settings.get("beep_on_finish", True)))
+        tk.Checkbutton(
+            frm,
+            text="매크로 종료 시 알림음 재생",
+            variable=self.beep_var
+        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(10, 0))
+
+        row += 1
         tk.Label(frm, text="시작 단축키").grid(row=row, column=0, sticky="w", pady=(10, 0))
         start_entry = tk.Entry(frm, width=12, textvariable=self.start_key_var, state="readonly", readonlybackground="white")
         start_entry.grid(row=row, column=1, sticky="w", padx=8, pady=(10, 0))
@@ -387,6 +399,7 @@ class MacroUI:
             return
         self.settings["repeat"] = repeat
         self.settings["start_delay"] = delay
+        self.settings["beep_on_finish"] = bool(self.beep_var.get())  # ← NEW
         self._mark_dirty(True)
         self._close_settings(win)
 
@@ -680,6 +693,12 @@ class MacroUI:
         self.run_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self._clear_highlight()
+
+        if self.settings.get("beep_on_finish", True):
+            try:
+                self.root.bell()
+            except Exception:
+                pass
 
     # ---------- 이미지 조건 ----------
     def add_image_condition(self):
