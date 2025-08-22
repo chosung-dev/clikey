@@ -58,9 +58,9 @@ class MacroUI:
 
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="새로 만들기", command=self.new_file)
-        file_menu.add_command(label="저장하기", command=self.save_file)
-        file_menu.add_command(label="새로 저장하기", command=self.save_file_as)
-        file_menu.add_command(label="불러오기", command=self.load_file)
+        file_menu.add_command(label="열기", command=self.load_file)
+        file_menu.add_command(label="저장", command=self.save_file)
+        file_menu.add_command(label="다른 이름으로 저장", command=self.save_file_as)
         file_menu.add_separator()
         file_menu.add_command(label="종료", command=self.request_quit)
         menubar.add_cascade(label="파일", menu=file_menu)
@@ -292,8 +292,7 @@ class MacroUI:
         )
         if not file_path:
             return
-        if self._open_path(file_path):
-            messagebox.showinfo("불러오기 완료", "매크로 파일을 불러왔습니다.")
+        self._open_path(file_path)
 
     def save_file(self) -> bool:
         if self.running:
@@ -311,7 +310,6 @@ class MacroUI:
                 save_app_state({"last_file_path": path})
             except Exception:
                 pass
-            messagebox.showinfo("완료", "저장이 완료되었습니다.")
             return True
         except Exception as e:
             messagebox.showerror("에러", f"저장 실패:\n{e}")
