@@ -6,9 +6,9 @@ import os, json
 def is_valid_macro_line(s: str) -> bool:
     if not isinstance(s, str):
         return False
-    if s.startswith(("키보드:", "마우스:", "시간:", "조건:", "조건끝")):
+    if s.startswith(("키보드:", "마우스:", "시간:", "조건:", "조건끝", "매크로중지")):
         return True
-    if s.startswith("  ") and s[2:].startswith(("키보드:", "마우스:", "시간:")):
+    if s.startswith("  ") and s[2:].startswith(("키보드:", "마우스:", "시간:", "매크로중지")):
         return True
     return False
 
@@ -19,6 +19,7 @@ def export_data(list_items: List[str], settings: Dict[str, Any], hotkeys: Dict[s
         "settings": {
             "repeat": int(settings.get("repeat", 1)),
             "start_delay": int(settings.get("start_delay", 3)),
+            "beep_on_finish": int(settings.get("beep_on_finish", False)),
         },
         "hotkeys": {
             "start": hotkeys.get("start"),

@@ -149,7 +149,8 @@ class MacroUI:
         tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
         tk.Button(right_frame, text="시간", width=18, command=self.add_delay).pack(pady=6)
         tk.Button(right_frame, text="이미지조건", width=18, command=self.add_image_condition).pack(pady=6)
-        tk.Button(right_frame, text="지우기", width=18, command=self.delete_macro).pack(pady=16)
+        tk.Button(right_frame, text="매크로중지", width=18, command=self.delete_macro).pack(pady=6)
+        tk.Button(right_frame, text="지우기", width=18, command=self.add_stop_macro).pack(pady=16)
 
         self.run_btn = tk.Button(right_frame, text="▶ 실행하기", width=18, command=self.run_macros)
         self.run_btn.pack(pady=6)
@@ -563,7 +564,11 @@ class MacroUI:
         if self.stop_flag:
             return
 
-        if item.startswith("키보드:"):
+        if item.strip() == "매크로중지":
+            self.stop_flag = True
+            return
+
+        elif item.startswith("키보드:"):
             try:
                 _, key, action = item.split(":")
             except ValueError:
@@ -590,8 +595,11 @@ class MacroUI:
                     break
                 time.sleep(0.05)
 
-    def delete_macro(self):
+    def add_stop_macro(self):
         return self._on_delete()
+
+    def delete_macro(self):
+        self._insert_smart("매크로중지")
 
     # ---------- 실행/중지 ----------
     def run_macros(self):
