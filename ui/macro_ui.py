@@ -110,6 +110,7 @@ class MacroUI:
         self.root.bind("<Control-c>", self._on_copy)
         self.root.bind("<Control-x>", self._on_cut)
         self.root.bind("<Control-v>", self._on_paste)
+        self.root.bind("<Control-s>", self._on_save)
         self.root.bind("<Delete>", self._on_delete)
 
         self.root.bind_class("Button", "<Button-1>",
@@ -1109,6 +1110,10 @@ class MacroUI:
             self._drop_preview_insert_at = None
             self._drag_moved = False
 
+        return "break"
+
+    def _on_save(self, event=None):
+        self.save_file()
         return "break"
 
     def _on_copy(self, event=None):
