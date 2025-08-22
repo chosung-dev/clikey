@@ -397,7 +397,7 @@ class MacroUI:
             if repeat < 0 or delay < 0:
                 raise ValueError
         except Exception:
-            messagebox.showerror("에러", "반복 횟수와 지연 시간은 0 이상의 정수여야 합니다.")
+            messagebox.showerror("에러", "반복 횟수와 지연 시간은 0 이상 이여야 합니다.")
             return
         self.settings["repeat"] = repeat
         self.settings["start_delay"] = delay
@@ -554,7 +554,7 @@ class MacroUI:
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
 
     def add_delay(self):
-        sec = simpledialog.askinteger("대기 시간", "대기할 초를 입력하세요:", minvalue=1, maxvalue=600)
+        sec = simpledialog.askfloat("대기 시간", "대기할 초를 입력하세요:", minvalue=1, maxvalue=600)
         if sec:
             line = f"시간:{sec}"
             self._insert_smart(line)
@@ -588,7 +588,7 @@ class MacroUI:
             mouse_move_click(self.root, x, y, button)
 
         elif item.startswith("시간:"):
-            sec = int(item.split(":", 1)[1])
+            sec = float(item.split(":", 1)[1])
             end = time.time() + sec
             while time.time() < end:
                 if self.stop_flag:
