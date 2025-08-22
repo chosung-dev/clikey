@@ -754,6 +754,20 @@ class MacroUI:
             captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
             msg.config(text=f"캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
 
+        def capture_color():
+            x = captured["x"]
+            y = captured["y"]
+            if x is None or y is None:
+                messagebox.showwarning("오류", "좌표를 먼저 캡처 해 주세요")
+                return
+            rgb = grab_rgb_at(x, y)
+            if rgb is None:
+                messagebox.showwarning("오류", "화면 캡처에 실패했습니다.")
+                return
+            r, g, b = rgb
+            captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
+            msg.config(text=f"캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
+
         def apply_block():
             if captured["x"] is None:
                 messagebox.showwarning("안내", "먼저 좌표/색을 캡처하세요.")
@@ -770,10 +784,12 @@ class MacroUI:
         btns = tk.Frame(frm)
         btns.pack(pady=8)
         tk.Button(btns, text="좌표/색 캡처 (Enter)", command=capture).grid(row=0, column=0, padx=6)
-        tk.Button(btns, text="조건 추가", command=apply_block).grid(row=0, column=1, padx=6)
+        tk.Button(btns, text="고정 좌표 색 캡처", command=capture_color).grid(row=0, column=1, padx=6)
+        tk.Button(frm, text="추가 (Ctrl+Enter)", command=apply_block).pack(pady=4)
         tk.Button(frm, text="취소 (Esc)", command=lambda: (win.grab_release(), win.destroy())).pack(pady=4)
 
         win.bind("<Return>", lambda e: capture())
+        win.bind("<Control-Return>", lambda e: apply_block())
         win.bind("<Escape>", lambda e: (win.grab_release(), win.destroy()))
 
     # ---------- 내부 유틸 ----------
