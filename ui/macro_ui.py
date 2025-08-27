@@ -552,7 +552,7 @@ class MacroUI:
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
 
     def add_delay(self):
-        sec = simpledialog.askfloat("대기 시간", "대기할 초를 입력하세요:", minvalue=1, maxvalue=600)
+        sec = simpledialog.askfloat("대기 시간", "대기할 초를 입력하세요:", minvalue=0, maxvalue=3600)
         if sec:
             line = f"시간:{sec}"
             self._insert_smart(line)
