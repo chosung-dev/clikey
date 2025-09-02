@@ -198,6 +198,12 @@ class MacroUI:
             except Exception:
                 pass
 
+            # 설정 다이얼로그를 새로운 설정으로 다시 생성
+            self.settings_dialog = SettingsDialog(
+                self.root, self.settings, self.hotkeys, 
+                self._mark_dirty, self._register_hotkeys_if_available
+            )
+
             return True
         except Exception as e:
             messagebox.showerror("불러오기 실패", f"파일을 불러오는 중 오류 발생:\n{e}")
@@ -233,6 +239,12 @@ class MacroUI:
         self._register_hotkeys_if_available()
         self.current_path = None
         self._mark_dirty(False)
+        
+        # 설정 다이얼로그를 새로운 설정으로 다시 생성
+        self.settings_dialog = SettingsDialog(
+            self.root, self.settings, self.hotkeys, 
+            self._mark_dirty, self._register_hotkeys_if_available
+        )
 
     def request_quit(self):
         if self.running:

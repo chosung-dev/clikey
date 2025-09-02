@@ -53,10 +53,11 @@ class MacroExecutor:
         try:
             delay = max(0, float(settings.get("start_delay", 0)))
             if delay > 0:
-                for _ in range(delay * 10):
+                end_time = time.time() + delay
+                while time.time() < end_time:
                     if self.stop_flag:
                         break
-                    time.sleep(0.1)
+                    time.sleep(0.05)  # 0.05초씩 체크하여 더 세밀한 중단 가능
             if self.stop_flag:
                 return
 
@@ -147,11 +148,38 @@ class MacroExecutor:
                 pyautogui.keyUp(key)
 
         elif item.startswith("마우스:"):
+            from core.mouse import mouse_move_click, mouse_move_only, mouse_down_at_current, mouse_up_at_current
+            
             body = item.split(":", 1)[1]
-            coord, button = body.split(":")
-            x_str, y_str = coord.split(",")
-            x, y = int(x_str), int(y_str)
-            mouse_move_click(self.root, x, y, button)
+            parts = body.split(":")
+            
+            # 현재 위치에서 동작하는 명령들: 마우스:누름:button, 마우스:떼기:button
+            if len(parts) == 2 and parts[0] in ("누름", "떼기"):
+                action, button = parts
+                if action == "누름":
+                    mouse_down_at_current(self.root, button)
+                elif action == "떼기":
+                    mouse_up_at_current(self.root, button)
+            else:
+                # 좌표가 포함된 명령들: 마우스:x,y:button, 마우스:x,y:이동
+                try:
+                    coord_part = parts[0]
+                    x_str, y_str = coord_part.split(",")
+                    x, y = int(x_str), int(y_str)
+                    
+                    if len(parts) >= 2:
+                        action_or_button = parts[1]
+                        if action_or_button == "이동":
+                            mouse_move_only(self.root, x, y)
+                        else:
+                            # 클릭 (left, right, middle)
+                            mouse_move_click(self.root, x, y, action_or_button)
+                    else:
+                        # 기본 좌클릭
+                        mouse_move_click(self.root, x, y, "left")
+                except (ValueError, IndexError):
+                    # 파싱 실패시 무시
+                    pass
 
         elif item.startswith("시간:"):
             sec = float(item.split(":", 1)[1])

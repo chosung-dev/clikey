@@ -40,7 +40,7 @@ class InputDialogs:
     def add_mouse(self):
         mouse_win = tk.Toplevel(self.parent)
         mouse_win.title("마우스 입력")
-        mouse_win.geometry("320x220+540+340")
+        mouse_win.geometry("400x330+540+320")
         mouse_win.resizable(False, False)
 
         mouse_win.transient(self.parent)
@@ -61,13 +61,59 @@ class InputDialogs:
         pos_var = tk.StringVar(value="현재 좌표: (---, ---)")
         tk.Label(frame, textvariable=pos_var, font=("맑은 고딕", 11)).pack(pady=4)
 
+        # 버튼 타입 선택
         btn_var = tk.StringVar(value="left")
-        btnf = tk.Frame(frame)
-        btnf.pack(pady=6)
-        tk.Radiobutton(btnf, text="왼쪽 클릭", variable=btn_var, value="left").grid(row=0, column=0, padx=6)
-        tk.Radiobutton(btnf, text="오른쪽 클릭", variable=btn_var, value="right").grid(row=0, column=1, padx=6)
+        btn_frame = tk.LabelFrame(frame, text="버튼 타입", font=("맑은 고딕", 10))
+        btn_frame.pack(pady=6, padx=10, fill="x")
+
+        tk.Radiobutton(btn_frame, text="왼쪽", variable=btn_var, value="left").grid(row=0, column=0, sticky="w", padx=5)
+        tk.Radiobutton(btn_frame, text="오른쪽", variable=btn_var, value="right").grid(row=0, column=1, sticky="w", padx=5)
+        tk.Radiobutton(btn_frame, text="가운데", variable=btn_var, value="middle").grid(row=0, column=2, sticky="w",
+                                                                                     padx=5)
+        # 동작 타입 선택
+        action_var = tk.StringVar(value="click")
+        action_frame = tk.LabelFrame(frame, text="동작 타입", font=("맑은 고딕", 10))
+        action_frame.pack(pady=6, padx=10, fill="x")
+        
+        tk.Radiobutton(action_frame, text="좌표 클릭", variable=action_var, value="click").grid(row=0, column=0, sticky="w", padx=5)
+        tk.Radiobutton(action_frame, text="좌표로 이동하기", variable=action_var, value="move").grid(row=0, column=1, sticky="w", padx=5)
+        tk.Radiobutton(action_frame, text="누르고있기", variable=action_var, value="down").grid(row=1, column=0, sticky="w", padx=5)
+        tk.Radiobutton(action_frame, text="떼기", variable=action_var, value="up").grid(row=1, column=1, sticky="w", padx=5)
+
+
 
         captured = {"x": None, "y": None}
+
+        def update_ui_state():
+            """동작 타입에 따라 UI 상태 업데이트"""
+            action = action_var.get()
+            
+            if action == "move":
+                # 이동하기: 버튼 타입 비활성화
+                for widget in btn_frame.winfo_children():
+                    widget.configure(state="disabled")
+                info.config(text="커서를 원하는 위치로 옮긴 뒤\n[좌표 캡처] 또는 Enter 키를 누르세요.")
+            elif action in ("down", "up"):
+                # 누르고있기/떼기: 버튼 타입 활성화, 좌표 캡처 불필요
+                for widget in btn_frame.winfo_children():
+                    widget.configure(state="normal")
+                if action == "down":
+                    info.config(text="현재 마우스 위치에서\n선택한 버튼을 누르고 유지합니다.")
+                else:
+                    info.config(text="현재 마우스 위치에서\n선택한 버튼을 뗍니다.")
+            else:  # action == "click"
+                # 클릭: 모든 요소 활성화
+                for widget in btn_frame.winfo_children():
+                    widget.configure(state="normal")
+                info.config(text="커서를 원하는 위치로 옮긴 뒤\n[좌표 캡처] 또는 Enter 키를 누르세요.")
+        
+        # 동작 타입 변경 시 UI 상태 업데이트
+        for widget in action_frame.winfo_children():
+            if isinstance(widget, tk.Radiobutton):
+                widget.configure(command=update_ui_state)
+        
+        # 초기 상태 설정
+        update_ui_state()
 
         def tick():
             x, y = pyautogui.position()
@@ -87,11 +133,33 @@ class InputDialogs:
             info.config(text=f"캡처됨: ({x}, {y}) / RGB=({r},{g},{b})")
 
         def add_item():
+            action = action_var.get()
+            button = btn_var.get()
+            
+            # 누르고있기와 떼기는 좌표가 필요없음 (현재 위치에서 동작)
+            if action in ("down", "up"):
+                if action == "down":
+                    line = f"마우스:누름:{button}"
+                else:  # action == "up"
+                    line = f"마우스:떼기:{button}"
+                self.insert_callback(line)
+                on_close()
+                return
+            
+            # 클릭과 이동하기는 좌표가 필요함
             if captured["x"] is None:
                 messagebox.showwarning("안내", "먼저 좌표를 캡처하세요.")
                 return
-            b = btn_var.get()
-            line = f"마우스:{captured['x']},{captured['y']}:{b}"
+                
+            x, y = captured['x'], captured['y']
+            if action == "click":
+                line = f"마우스:{x},{y}:{button}"
+            elif action == "move":
+                line = f"마우스:{x},{y}:이동"
+            else:
+                # 기본값
+                line = f"마우스:{x},{y}:{button}"
+                
             self.insert_callback(line)
             on_close()
 
