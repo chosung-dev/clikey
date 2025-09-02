@@ -18,7 +18,8 @@ def export_data(list_items: List[str], settings: Dict[str, Any], hotkeys: Dict[s
         "items": list_items,
         "settings": {
             "repeat": int(settings.get("repeat", 1)),
-            "start_delay": int(settings.get("start_delay", 3)),
+            "start_delay": float(settings.get("start_delay", 3)),
+            "step_delay": float(settings.get("step_delay", 0.001)),
             "beep_on_finish": int(settings.get("beep_on_finish", False)),
         },
         "hotkeys": {

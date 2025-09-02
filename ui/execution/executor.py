@@ -51,7 +51,7 @@ class MacroExecutor:
 
     def _execute_worker(self, items: list[str], settings: dict):
         try:
-            delay = max(0, int(settings.get("start_delay", 0)))
+            delay = max(0, float(settings.get("start_delay", 0)))
             if delay > 0:
                 for _ in range(delay * 10):
                     if self.stop_flag:
@@ -61,6 +61,7 @@ class MacroExecutor:
                 return
 
             repeat = int(settings.get("repeat", 1))
+            step_delay = float(settings.get("step_delay", 0.001))
             loop_inf = (repeat == 0)
             loops = 0
 
@@ -107,12 +108,16 @@ class MacroExecutor:
                                     break
                                 self._highlight_index(idx_run)
                                 self._execute_item(sub_item)
+                                if step_delay > 0 and not self.stop_flag:
+                                    time.sleep(step_delay)
 
                         i = j + 1 if j < n and items[j].startswith("조건끝") else j
                         continue
 
                     self._highlight_index(i)
                     self._execute_item(item)
+                    if step_delay > 0 and not self.stop_flag:
+                        time.sleep(step_delay)
                     i += 1
 
                 if self.stop_flag:
