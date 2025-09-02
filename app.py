@@ -10,7 +10,7 @@ try:
 except Exception:
     pass
 
-from ui.macro_ui import MacroUI
+from ui.main_window import MacroUI
 from core.keyboard_hotkey import KEYBOARD_AVAILABLE, keyboard  # re-exported
 
 def main():
