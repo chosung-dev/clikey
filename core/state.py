@@ -2,7 +2,7 @@
 def default_settings():
     return {
         "repeat": 1,
-        "start_delay": 3,
+        "start_delay": 1,
         "step_delay": 0.001,
         "beep_on_finish": False
     }

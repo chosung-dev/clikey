@@ -4,7 +4,6 @@ import tkinter as tk
 import pyautogui
 from typing import Callable, Optional
 
-from core.mouse import mouse_move_click
 from core.screen import grab_rgb_at
 
 
@@ -51,13 +50,8 @@ class MacroExecutor:
 
     def _execute_worker(self, items: list[str], settings: dict):
         try:
-            delay = max(0, float(settings.get("start_delay", 0)))
-            if delay > 0:
-                end_time = time.time() + delay
-                while time.time() < end_time:
-                    if self.stop_flag:
-                        break
-                    time.sleep(0.05)  # 0.05초씩 체크하여 더 세밀한 중단 가능
+            delay_sec = max(0, float(settings.get("start_delay", 0)))
+            self._sleep(delay_sec)
             if self.stop_flag:
                 return
 
@@ -157,9 +151,9 @@ class MacroExecutor:
             if len(parts) == 2 and parts[0] in ("누름", "떼기"):
                 action, button = parts
                 if action == "누름":
-                    mouse_down_at_current(self.root, button)
+                    mouse_down_at_current(button)
                 elif action == "떼기":
-                    mouse_up_at_current(self.root, button)
+                    mouse_up_at_current(button)
             else:
                 # 좌표가 포함된 명령들: 마우스:x,y:button, 마우스:x,y:이동
                 try:
@@ -170,24 +164,24 @@ class MacroExecutor:
                     if len(parts) >= 2:
                         action_or_button = parts[1]
                         if action_or_button == "이동":
-                            mouse_move_only(self.root, x, y)
+                            mouse_move_only(x, y)
                         else:
-                            # 클릭 (left, right, middle)
-                            mouse_move_click(self.root, x, y, action_or_button)
+                            mouse_move_click(x, y, action_or_button)
                     else:
-                        # 기본 좌클릭
-                        mouse_move_click(self.root, x, y, "left")
+                        mouse_move_click(x, y, "left")
                 except (ValueError, IndexError):
-                    # 파싱 실패시 무시
                     pass
 
         elif item.startswith("시간:"):
             sec = float(item.split(":", 1)[1])
-            end = time.time() + sec
-            while time.time() < end:
-                if self.stop_flag:
-                    break
-                time.sleep(0.05)
+            self._sleep(sec)
+
+    def _sleep(self, sec):
+        end = time.time() + sec
+        while time.time() < end:
+            if self.stop_flag:
+                break
+            time.sleep(0.05)
 
     def _highlight_index(self, idx: int):
         if self.highlight_callback:

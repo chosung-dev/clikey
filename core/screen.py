@@ -2,15 +2,13 @@
 from __future__ import annotations
 from typing import Tuple, Optional
 
+from autoit import autoit
+
 try:
     from PIL import ImageGrab
 except Exception as e:  # Pillow 없는 경우를 대비
     ImageGrab = None  # type: ignore
 
-try:
-    import pyautogui
-except Exception:
-    pyautogui = None  # type: ignore
 
 def grab_rgb_at(x: int, y: int) -> Optional[Tuple[int, int, int]]:
     """Safely grab RGB at screen coordinate (x,y). Returns None on failure."""
@@ -25,10 +23,8 @@ def grab_rgb_at(x: int, y: int) -> Optional[Tuple[int, int, int]]:
 
 def get_rgb_under_mouse() -> Optional[Tuple[int, int, int, int, int]]:
     """Returns (x, y, r, g, b) under current cursor, or None on failure."""
-    if pyautogui is None:
-        return None
     try:
-        x, y = pyautogui.position()
+        x, y = autoit.mouse_get_pos()
         rgb = grab_rgb_at(x, y)
         if rgb is None:
             return None
