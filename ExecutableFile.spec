@@ -1,4 +1,5 @@
 from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_dynamic_libs
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--app-name", default="NamaanMacro")
@@ -14,11 +15,12 @@ hidden = [
 hidden += collect_submodules("pyautogui")
 
 block_cipher = None
+autoit_bins = collect_dynamic_libs('autoit')
 
 a = Analysis(
     ['app.py'],
     pathex=[],
-    binaries=[],
+    binaries=autoit_bins,
     datas=[
         # ('assets/app.ico', 'assets'),  # 아이콘/리소스가 있으면 이런 식으로 추가
     ],
