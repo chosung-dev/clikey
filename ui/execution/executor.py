@@ -76,23 +76,21 @@ class MacroExecutor:
                             cx, cy = int(cx_str), int(cy_str)
                             r_t, g_t, b_t = int(rx_str), int(gy_str), int(bz_str)
                         except Exception:
+                            # 조건 파싱 실패 시 들여쓰기된 블록 전체를 건너뛰기
                             i += 1
-                            while i < n and not items[i].startswith("조건끝"):
+                            while i < n and items[i].startswith("  "):
                                 i += 1
-                            i += 1
                             continue
 
                         sub = []
                         j = i + 1
                         while j < n:
                             line = items[j]
-                            if line.startswith("조건끝"):
-                                break
                             if line.startswith("  "):
                                 sub.append((j, line[2:]))
+                                j += 1
                             else:
                                 break
-                            j += 1
 
                         pix = grab_rgb_at(cx, cy)
                         match = (pix == (r_t, g_t, b_t))
@@ -106,7 +104,7 @@ class MacroExecutor:
                                 if step_delay > 0 and not self.stop_flag:
                                     time.sleep(step_delay)
 
-                        i = j + 1 if j < n and items[j].startswith("조건끝") else j
+                        i = j
                         continue
 
                     self._highlight_index(i)

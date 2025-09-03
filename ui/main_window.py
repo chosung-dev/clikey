@@ -108,7 +108,7 @@ class MacroUI:
             self._mark_dirty, self._register_hotkeys_if_available
         )
         self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_smart)
-        self.condition_dialog = ConditionDialog(self.root, self.macro_list.macro_listbox)
+        self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_smart)
 
         # 오른쪽 버튼들
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)

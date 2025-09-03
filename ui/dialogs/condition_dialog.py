@@ -1,14 +1,15 @@
 import tkinter as tk
 from tkinter import messagebox
 import pyautogui
+from typing import Callable
 
 from core.screen import grab_rgb_at
 
 
 class ConditionDialog:
-    def __init__(self, parent: tk.Tk, listbox: tk.Listbox):
+    def __init__(self, parent: tk.Tk, insert_callback: Callable[[str], None]):
         self.parent = parent
-        self.listbox = listbox
+        self.insert_callback = insert_callback
 
     def add_image_condition(self):
         win = tk.Toplevel(self.parent)
@@ -75,8 +76,7 @@ class ConditionDialog:
                 messagebox.showwarning("안내", "먼저 좌표/색을 캡처하세요.")
                 return
             header = f"조건:{captured['x']},{captured['y']}={captured['r']},{captured['g']},{captured['b']}"
-            self.listbox.insert(tk.END, header)
-            self.listbox.insert(tk.END, "조건끝")
+            self.insert_callback(header)
             try:
                 win.grab_release()
             except Exception:

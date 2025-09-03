@@ -6,7 +6,7 @@ import os, json
 def is_valid_macro_line(s: str) -> bool:
     if not isinstance(s, str):
         return False
-    if s.startswith(("키보드:", "마우스:", "시간:", "조건:", "조건끝", "매크로중지")):
+    if s.startswith(("키보드:", "마우스:", "시간:", "조건:", "매크로중지")):
         return True
     if s.startswith("  ") and s[2:].startswith(("키보드:", "마우스:", "시간:", "매크로중지")):
         return True

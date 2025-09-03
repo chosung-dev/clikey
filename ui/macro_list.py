@@ -55,22 +55,20 @@ class MacroListManager:
         idx = sel[0] if sel else (size - 1)
         line_at_idx = lb.get(idx)
         blk = self._find_block_bounds(idx)
-
         if blk is not None:
             start, end = blk
 
-            is_footer_selected = self._is_footer(line_at_idx)
             is_no_selection = not sel
             is_block_at_bottom = (end == size - 1)
 
-            if is_block_at_bottom and (is_no_selection or is_footer_selected):
+            if is_block_at_bottom and is_no_selection:
                 insert_at = size
                 line = self._ensure_body_indent(line, going_into_block=False)
             else:
                 if self._is_body(line_at_idx):
-                    insert_at = min(idx + 1, end)
+                    insert_at = idx + 1
                 else:
-                    insert_at = end
+                    insert_at = end + 1
                 line = self._ensure_body_indent(line, going_into_block=True)
 
         else:
@@ -129,7 +127,7 @@ class MacroListManager:
         line = lb.get(idx)
         blk = self._find_block_bounds(idx)
 
-        if blk is not None and (self._is_header(line) or self._is_footer(line)):
+        if blk is not None and self._is_header(line):
             s, e = blk
             self._clipboard = [lb.get(i) for i in range(s, e + 1)]
             self._clipboard_is_block = True
@@ -159,7 +157,18 @@ class MacroListManager:
 
         if cur_block is not None:
             start, end = cur_block
-            insert_at = end
+            # 조건 블록 내부의 특정 라인을 선택한 경우와 조건 헤더를 선택한 경우 구분
+            if sel and cur_idx < size:
+                cur_line = lb.get(cur_idx)
+                if self._is_body(cur_line):
+                    # 조건 블록 내부의 라인을 선택한 경우, 그 다음에 추가
+                    insert_at = cur_idx + 1
+                else:
+                    # 조건 헤더를 선택한 경우, 블록 끝에 추가
+                    insert_at = end + 1
+            else:
+                # 선택이 없는 경우, 블록 끝에 추가
+                insert_at = end + 1
             payload = self._prepare_lines_for_body(self._clipboard)
             if not payload:
                 return "break"
@@ -211,7 +220,7 @@ class MacroListManager:
             return "break"
 
         start, end = blk
-        if self._is_header(line) or self._is_footer(line):
+        if self._is_header(line):
             width = end - start + 1
             for _ in range(width):
                 lb.delete(start)
@@ -242,11 +251,8 @@ class MacroListManager:
     def _is_header(self, line: str) -> bool:
         return line.startswith("조건:")
 
-    def _is_footer(self, line: str) -> bool:
-        return line.startswith("조건끝")
-
     def _is_body(self, line: str) -> bool:
-        return line.startswith("  ") and not self._is_footer(line) and not self._is_header(line)
+        return line.startswith("  ") and not self._is_header(line)
 
     def _find_block_bounds(self, idx: int) -> Optional[Tuple[int, int]]:
         size = self.macro_listbox.size()
@@ -256,11 +262,14 @@ class MacroListManager:
         if self._is_header(line):
             start = idx
             j = idx + 1
-            while j < size and not self._is_footer(self.macro_listbox.get(j)):
+            # 들여쓰기된 라인들을 찾아서 끝을 결정
+            while j < size:
+                next_line = self.macro_listbox.get(j)
+                # 다음 조건이나 들여쓰기되지 않은 라인을 만나면 종료
+                if self._is_header(next_line) or (not next_line.startswith("  ") and next_line.strip()):
+                    break
                 j += 1
-            if j < size and self._is_footer(self.macro_listbox.get(j)):
-                return (start, j)
-            return None
+            return (start, j - 1) if j > start else None
         if self._is_body(line):
             i = idx
             while i >= 0 and not self._is_header(self.macro_listbox.get(i)):
@@ -268,19 +277,12 @@ class MacroListManager:
             if i >= 0 and self._is_header(self.macro_listbox.get(i)):
                 return self._find_block_bounds(i)
             return None
-        if self._is_footer(line):
-            i = idx
-            while i >= 0 and not self._is_header(self.macro_listbox.get(i)):
-                i -= 1
-            if i >= 0 and self._is_header(self.macro_listbox.get(i)):
-                return (i, idx)
-            return None
         return None
 
     def _prepare_lines_for_body(self, lines: List[str]) -> List[str]:
         out = []
         for s in lines:
-            if self._is_header(s) or self._is_footer(s):
+            if self._is_header(s):
                 continue
             if s.startswith("  "):
                 out.append(s)
@@ -293,7 +295,7 @@ class MacroListManager:
             return list(lines)
         out = []
         for s in lines:
-            if self._is_header(s) or self._is_footer(s):
+            if self._is_header(s):
                 out.append(s)
             elif s.startswith("  "):
                 out.append(s[2:])
@@ -302,7 +304,7 @@ class MacroListManager:
         return out
 
     def _ensure_body_indent(self, s: str, going_into_block: bool) -> str:
-        if going_into_block and not s.startswith("  ") and not self._is_header(s) and not self._is_footer(s):
+        if going_into_block and not s.startswith("  ") and not self._is_header(s):
             return "  " + s
         return s
 

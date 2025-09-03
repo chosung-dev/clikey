@@ -92,6 +92,7 @@ class DragDropHandler:
             preview_insert_at = size
         elif tgt_blk is not None:
             t_start, t_end = tgt_blk
+            
             if src_blk is not None and self._is_body(src_line) and tgt_blk == src_blk:
                 body_start, body_end = t_start + 1, t_end - 1
                 if body_start > body_end:
@@ -99,12 +100,18 @@ class DragDropHandler:
                     return "break"
                 preview_insert_at = max(body_start, min(idx, body_end + 1))
             else:
-                preview_insert_at = t_end
+                # 조건 블록을 다른 조건 블록 바로 위로 이동하는 것을 허용
+                if src_blk is not None and self._is_header(src_line) and idx <= t_start:
+                    preview_insert_at = t_start
+                else:
+                    preview_insert_at = t_end + 1
         else:
             preview_insert_at = idx
 
         self._drop_preview_insert_at = preview_insert_at
-        self._show_insert_indicator(preview_insert_at)
+        # 조건 블록 안으로 넣는지 여부를 전달
+        is_into_block = (tgt_blk is not None and not (src_blk is not None and self._is_body(src_line) and tgt_blk == src_blk))
+        self._show_insert_indicator(preview_insert_at, is_into_block)
 
         try:
             if size > 0:
@@ -127,7 +134,7 @@ class DragDropHandler:
             src_line = lb.get(src)
             src_blk = self._find_block_bounds(src)
 
-            if src_blk is not None and (self._is_header(src_line) or self._is_footer(src_line)):
+            if src_blk is not None and self._is_header(src_line):
                 s, e = src_blk
                 payload = [lb.get(i) for i in range(s, e + 1)]
                 payload_is_block = True
@@ -165,10 +172,17 @@ class DragDropHandler:
                         self.mark_dirty_callback(True)
                     return
 
-                insert_at = t_end
-                if del_start < insert_at:
-                    insert_at -= width
-                final_lines = self._prepare_lines_for_body(payload)
+                # 조건 블록을 다른 조건 블록 바로 위로 이동하는 것을 허용
+                if payload_is_block and self._is_header(payload[0]) and idx <= t_start:
+                    insert_at = t_start
+                    if del_start < insert_at:
+                        insert_at -= width
+                    final_lines = self._prepare_lines_for_top(payload, payload_is_block)
+                else:
+                    insert_at = t_end + 1
+                    if del_start < insert_at:
+                        insert_at -= width
+                    final_lines = self._prepare_lines_for_body(payload)
 
             else:
                 insert_at = self._drop_preview_insert_at if self._drop_preview_insert_at is not None else (
@@ -234,11 +248,8 @@ class DragDropHandler:
     def _is_header(self, line: str) -> bool:
         return line.startswith("조건:")
 
-    def _is_footer(self, line: str) -> bool:
-        return line.startswith("조건끝")
-
     def _is_body(self, line: str) -> bool:
-        return line.startswith("  ") and not self._is_footer(line) and not self._is_header(line)
+        return line.startswith("  ") and not self._is_header(line)
 
     def _find_block_bounds(self, idx: int) -> Optional[Tuple[int, int]]:
         size = self.listbox.size()
@@ -248,11 +259,14 @@ class DragDropHandler:
         if self._is_header(line):
             start = idx
             j = idx + 1
-            while j < size and not self._is_footer(self.listbox.get(j)):
+            # 들여쓰기된 라인들을 쉠아서 끝을 결정
+            while j < size:
+                next_line = self.listbox.get(j)
+                # 다음 조건이나 들여쓰기되지 않은 라인을 만나면 종료
+                if self._is_header(next_line) or (not next_line.startswith("  ") and next_line.strip()):
+                    break
                 j += 1
-            if j < size and self._is_footer(self.listbox.get(j)):
-                return (start, j)
-            return None
+            return (start, j-1) if j > start else None
         if self._is_body(line):
             i = idx
             while i >= 0 and not self._is_header(self.listbox.get(i)):
@@ -260,19 +274,12 @@ class DragDropHandler:
             if i >= 0 and self._is_header(self.listbox.get(i)):
                 return self._find_block_bounds(i)
             return None
-        if self._is_footer(line):
-            i = idx
-            while i >= 0 and not self._is_header(self.listbox.get(i)):
-                i -= 1
-            if i >= 0 and self._is_header(self.listbox.get(i)):
-                return (i, idx)
-            return None
         return None
 
     def _prepare_lines_for_body(self, lines: List[str]) -> List[str]:
         out = []
         for s in lines:
-            if self._is_header(s) or self._is_footer(s):
+            if self._is_header(s):
                 continue
             if s.startswith("  "):
                 out.append(s)
@@ -285,7 +292,7 @@ class DragDropHandler:
             return list(lines)
         out = []
         for s in lines:
-            if self._is_header(s) or self._is_footer(s):
+            if self._is_header(s):
                 out.append(s)
             elif s.startswith("  "):
                 out.append(s[2:])
@@ -301,7 +308,7 @@ class DragDropHandler:
                 pass
             self._insert_line_visible = False
 
-    def _show_insert_indicator(self, insert_at: int):
+    def _show_insert_indicator(self, insert_at: int, is_into_block: bool = False):
         lb = self.listbox
         size = lb.size()
         if size == 0:
@@ -323,12 +330,44 @@ class DragDropHandler:
             x, y, w, h = bbox
             y_line = y if base_top else (y + h - 1)
 
+            # 조건 블록 내부인지 확인하고 들여쓰기 적용
+            indent_x = 0
+            should_indent = is_into_block
+            
+            if not should_indent:
+                # 기존 로직: 주변 라인을 확인해서 들여쓰기 결정
+                if insert_at < size:
+                    # 삽입할 위치의 다음 라인이 조건 블록 내부인지 확인
+                    next_line_idx = insert_at
+                    if next_line_idx < size:
+                        next_line = lb.get(next_line_idx)
+                        if next_line.startswith("  "):
+                            should_indent = True
+                elif insert_at > 0:
+                    # 삽입할 위치의 이전 라인이 조건 블록 내부인지 확인
+                    prev_line_idx = insert_at - 1
+                    if prev_line_idx >= 0:
+                        prev_line = lb.get(prev_line_idx)
+                        if prev_line.startswith("  "):
+                            should_indent = True
+
+            if should_indent:
+                # 들여쓰기된 라인이면 들여쓰기 위치부터 시작
+                try:
+                    # 대략적인 문자 너비 계산 (폰트에 따라 다를 수 있음)
+                    char_width = 8  # 기본 문자 너비 추정
+                    indent_x = 2 * char_width  # 2칸 들여쓰기
+                except Exception:
+                    indent_x = 16  # 기본값
+
             try:
                 self._insert_bar.configure(bg="#2a7fff")
             except Exception:
                 pass
 
-            self._insert_bar.place(in_=lb, x=0, y=y_line, relwidth=1, height=2)
+            # 들여쓰기를 적용하여 가이드라인 표시
+            bar_width = max(0.8, 1.0 - (indent_x / w) if w > 0 else 1.0)
+            self._insert_bar.place(in_=lb, x=indent_x, y=y_line, relwidth=bar_width, height=2)
             self._insert_line_visible = True
         except Exception:
             self._hide_insert_indicator()
