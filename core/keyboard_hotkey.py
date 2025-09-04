@@ -1,14 +1,7 @@
 # core/keyboard_hotkey.py
 from __future__ import annotations
-from typing import Optional, Dict, Any, Callable
-
-# 전역 핫키용
-try:
-    import keyboard  # pip install keyboard
-    KEYBOARD_AVAILABLE = True
-except Exception:
-    keyboard = None  # type: ignore
-    KEYBOARD_AVAILABLE = False
+from typing import Optional
+import keyboard
 
 def display_key_name(key: Optional[str]) -> str:
     if not key:
@@ -43,10 +36,6 @@ def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
     return mapping.get(k, None)
 
 def register_hotkeys(root, ui) -> None:
-    """Register start/stop hotkeys based on ui.hotkeys; stores handles in ui.hotkey_handles."""
-    if not KEYBOARD_AVAILABLE or keyboard is None:
-        return
-
     # remove existing
     for k in ("start", "stop"):
         h = ui.hotkey_handles.get(k)

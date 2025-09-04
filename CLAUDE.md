@@ -97,3 +97,20 @@ The executable will be created in the `dist/` folder.
 - App state (last opened file) is saved to `~/.namaans_macro/app_state.json`
 - UI text and macro commands are in Korean
 - Failsafe is enabled in PyAutoGUI - moving mouse to top-left corner will stop execution
+
+## Testing and Quality Assurance
+- No formal test suite is present in this codebase
+- Application requires manual testing through UI interaction
+- Testing typically involves verifying macro execution, file I/O, and UI responsiveness
+- Run the application with `python app.py` for manual testing
+
+## Code Style and Conventions
+- Mixed Korean/English codebase with Korean UI text and macro commands
+- Uses standard Python naming conventions (snake_case for functions/variables)
+- Tkinter-based GUI following standard widget patterns
+- JSON-based data persistence with version field for future compatibility
+
+## 개발 시 항상 지켜야 할 원칙
+- **성능**
+  - 하위버전 호환성 고려 하지 않을 것
+  - Exception 발생 시 반드시 로그를 남기고, 사용자 친화적인 메시지로 변환.

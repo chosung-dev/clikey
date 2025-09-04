@@ -3,17 +3,11 @@ from __future__ import annotations
 from typing import Tuple, Optional
 
 from autoit import autoit
-
-try:
-    from PIL import ImageGrab
-except Exception as e:  # Pillow 없는 경우를 대비
-    ImageGrab = None  # type: ignore
+from PIL import ImageGrab
 
 
 def grab_rgb_at(x: int, y: int) -> Optional[Tuple[int, int, int]]:
     """Safely grab RGB at screen coordinate (x,y). Returns None on failure."""
-    if ImageGrab is None:
-        return None
     try:
         img = ImageGrab.grab()
         r, g, b = img.getpixel((x, y))
