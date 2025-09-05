@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import messagebox
 from typing import Callable, Optional
 
-from core.keyboard_hotkey import KEYBOARD_AVAILABLE, normalize_key_for_keyboard
+from core.keyboard_hotkey import normalize_key_for_keyboard
 
 
 class SettingsDialog:

@@ -11,14 +11,14 @@ except Exception:
     pass
 
 from ui.main_window import MacroUI
-from core.keyboard_hotkey import KEYBOARD_AVAILABLE, keyboard  # re-exported
+from core.keyboard_hotkey import keyboard  # re-exported
 
 def main():
     root = tk.Tk()
     ui = MacroUI(root)
 
     def cleanup_hotkeys():
-        if not KEYBOARD_AVAILABLE or keyboard is None:
+        if keyboard is None:
             return
         for k in ("start", "stop"):
             h = ui.hotkey_handles.get(k)

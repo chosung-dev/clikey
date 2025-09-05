@@ -5,7 +5,7 @@ from tkinter import messagebox, filedialog
 import pyautogui
 
 from core.state import default_settings, default_hotkeys
-from core.keyboard_hotkey import KEYBOARD_AVAILABLE, register_hotkeys
+from core.keyboard_hotkey import register_hotkeys
 from core.persistence import is_valid_macro_line, export_data, load_app_state, save_app_state
 from ui.macro_list import MacroListManager
 from ui.execution.executor import MacroExecutor
@@ -127,17 +127,7 @@ class MacroUI:
         self.root.bind("<Control-s>", self._on_save)
 
     def _register_hotkeys_if_available(self):
-        if KEYBOARD_AVAILABLE:
-            register_hotkeys(self.root, self)
-        else:
-            self.root.after(
-                500,
-                lambda: messagebox.showwarning(
-                    "전역 단축키 비활성화",
-                    "keyboard 라이브러리가 없거나 권한이 없어 전역 단축키를 사용할 수 없습니다.\n"
-                    "필요 시 다음을 설치하세요:\n\npip install keyboard",
-                ),
-            )
+        register_hotkeys(self.root, self)
 
     def _restore_last_file(self):
         try:
