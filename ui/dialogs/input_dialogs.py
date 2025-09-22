@@ -197,7 +197,13 @@ class InputDialogs:
 
         entry = tk.Entry(frame, font=("맑은 고딕", 10), width=15)
         entry.pack(pady=5)
-        entry.focus_set()
+
+        # 창이 완전히 로드된 후 입력칸에 포커스 설정
+        def set_entry_focus():
+            entry.focus_force()
+            entry.select_range(0, tk.END)
+
+        delay_window.after(100, set_entry_focus)
 
         def add_delay_item():
             try:

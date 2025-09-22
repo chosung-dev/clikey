@@ -38,8 +38,8 @@ class ConditionDialog:
 
         captured = {"x": None, "y": None, "r": None, "g": None, "b": None}
 
-        # Initialize magnifier
-        self.magnifier = Magnifier(win, zoom_factor=10, size=200)
+        # Magnifier will be initialized when needed (lazy loading)
+        self.magnifier = None
 
         def tick():
             x, y = pyautogui.position()
@@ -50,7 +50,7 @@ class ConditionDialog:
             else:
                 r, g, b = rgb
                 rgb_var.set(f"RGB: ({r}, {g}, {b})")
-            win.after(120, tick)
+            win.after(200, tick)
 
         tick()
 
@@ -66,6 +66,10 @@ class ConditionDialog:
 
         def show_magnifier():
             """Show magnifier for precise color picking."""
+            # Initialize magnifier only when needed
+            if self.magnifier is None:
+                self.magnifier = Magnifier(win, zoom_factor=10, size=200)
+
             def on_magnifier_click(x, y):
                 rgb = grab_rgb_at(x, y)
                 if rgb is None:
@@ -75,7 +79,7 @@ class ConditionDialog:
                 captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
                 msg.config(text=f"캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
                 self.magnifier.hide()
-            
+
             self.magnifier.show(on_magnifier_click)
 
         def capture_color():
@@ -128,7 +132,7 @@ class ConditionDialog:
 
         magnifier_frame = tk.Frame(frm)
         magnifier_frame.pack(pady=4)
-        tk.Button(magnifier_frame, text="🔍 정밀 캡처", command=show_magnifier, width=20).pack()
+        tk.Button(magnifier_frame, text="정밀 캡처", command=show_magnifier, width=20).pack()
 
         capture_frame = tk.Frame(frm)
         capture_frame.pack(pady=4)

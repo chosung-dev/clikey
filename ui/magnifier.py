@@ -141,7 +141,7 @@ class Magnifier:
             
         # Schedule next update
         if self.running:
-            self.magnifier_window.after(50, self._update_magnifier)
+            self.magnifier_window.after(100, self._update_magnifier)
             
     def _on_canvas_click(self, event):
         """Handle click on magnified canvas."""
