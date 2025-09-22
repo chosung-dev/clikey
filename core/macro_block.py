@@ -84,7 +84,7 @@ class MacroBlock:
         elif self.event_type == EventType.IF:
             return f"조건: {self.event_data} @{self.position}"
         elif self.event_type == EventType.EXIT:
-            return f"종료: {self.action}"
+            return f"매크로 중지"
         else:
             return f"{self.event_type.value}: {self.event_data}"
 

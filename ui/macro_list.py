@@ -19,7 +19,11 @@ class MacroListManager:
             desc_color="#1a7f37",
         )
 
-        self.inline_edit = InlineEditHandler(self.macro_listbox, mark_dirty_callback)
+        self.inline_edit = InlineEditHandler(
+            self.macro_listbox, 
+            mark_dirty_callback, 
+            self._update_block_description
+        )
         self.macro_blocks: List[MacroBlock] = []
         self.selected_indices: List[int] = []
         self.flat_blocks: List[Tuple[MacroBlock, int]] = []  # (block, depth) pairs
@@ -234,3 +238,9 @@ class MacroListManager:
                 return block
 
         return None
+
+    def _update_block_description(self, flat_index: int, new_description: str):
+        """Update the description of a MacroBlock based on flat list index."""
+        if 0 <= flat_index < len(self.flat_blocks):
+            block, _ = self.flat_blocks[flat_index]
+            block.description = new_description

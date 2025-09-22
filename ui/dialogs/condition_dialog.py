@@ -15,7 +15,7 @@ class ConditionDialog:
 
     def add_image_condition(self):
         win = tk.Toplevel(self.parent)
-        win.title("이미지 조건")
+        win.title("색상 조건")
         win.geometry("360x220+560+320")
         win.resizable(False, False)
         win.transient(self.parent)

@@ -1,7 +1,7 @@
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox
 import pyautogui
-from typing import Callable, Optional
+from typing import Callable
 
 from core.screen import grab_rgb_at
 from core.macro_block import MacroBlock
@@ -15,24 +15,18 @@ class InputDialogs:
 
     def add_keyboard(self):
         key_window = tk.Toplevel(self.parent)
-        key_window.geometry("320x190+520+320")
+        key_window.geometry("320x120+520+320")
 
         frame = tk.Frame(key_window, bd=2, relief=tk.RAISED)
         frame.pack(expand=True, fill="both")
 
-        tk.Label(frame, text="원하는 키를 눌러주세요", font=("맑은 고딕", 12)).pack(pady=6)
-
-        action_var = tk.StringVar(value="press")
-        tk.Radiobutton(frame, text="누르기 (press)", variable=action_var, value="press").pack(anchor="w", padx=10)
-        tk.Radiobutton(frame, text="누르고 있기 (down)", variable=action_var, value="down").pack(anchor="w", padx=10)
-        tk.Radiobutton(frame, text="떼기 (up)", variable=action_var, value="up").pack(anchor="w", padx=10)
+        tk.Label(frame, text="원하는 키를 눌러주세요", font=("맑은 고딕", 12)).pack(pady=20)
 
         tk.Button(frame, text="취소", command=key_window.destroy).pack(pady=8)
 
         def on_key(event):
             key = event.keysym
-            action = action_var.get()
-            macro_block = MacroFactory.create_keyboard_block(key, action)
+            macro_block = MacroFactory.create_keyboard_block(key)
             self.insert_callback(macro_block)
             key_window.destroy()
 
@@ -183,7 +177,53 @@ class InputDialogs:
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
 
     def add_delay(self):
-        sec = simpledialog.askfloat("대기 시간", "대기할 초를 입력하세요:", minvalue=0, maxvalue=3600)
-        if sec:
-            macro_block = MacroFactory.create_delay_block(sec)
-            self.insert_callback(macro_block)
+        delay_window = tk.Toplevel(self.parent)
+        delay_window.title("딜레이 시간")
+        delay_window.geometry("300x150+540+320")
+        delay_window.resizable(False, False)
+
+        delay_window.transient(self.parent)
+        delay_window.lift()
+        delay_window.attributes("-topmost", True)
+        delay_window.grab_set()
+        delay_window.focus_force()
+        delay_window.bind("<Map>", lambda e: delay_window.focus_force())
+        delay_window.after(200, lambda: delay_window.attributes("-topmost", False))
+
+        frame = tk.Frame(delay_window, bd=2, relief=tk.RAISED)
+        frame.pack(expand=True, fill="both", padx=6, pady=6)
+
+        tk.Label(frame, text="대기할 초를 입력하세요:", font=("맑은 고딕", 12)).pack(pady=10)
+
+        entry = tk.Entry(frame, font=("맑은 고딕", 10), width=15)
+        entry.pack(pady=5)
+        entry.focus_set()
+
+        def add_delay_item():
+            try:
+                sec = float(entry.get())
+                if sec < 0 or sec > 3600:
+                    messagebox.showwarning("오류", "0~3600 사이의 값을 입력하세요.")
+                    return
+                macro_block = MacroFactory.create_delay_block(sec)
+                self.insert_callback(macro_block)
+                delay_window.destroy()
+            except ValueError:
+                messagebox.showwarning("오류", "유효한 숫자를 입력하세요.")
+
+        def on_close():
+            try:
+                delay_window.grab_release()
+            except:
+                pass
+            delay_window.destroy()
+
+        # 버튼들
+        btn_frame = tk.Frame(frame)
+        btn_frame.pack(pady=10)
+        tk.Button(btn_frame, text="추가", command=add_delay_item).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="취소", command=on_close).pack(side=tk.LEFT, padx=5)
+
+        # 키 바인딩
+        delay_window.bind("<Return>", lambda e: add_delay_item())
+        delay_window.bind("<Escape>", lambda e: on_close())

@@ -6,6 +6,7 @@ from typing import List, Optional, Callable
 from core.macro_block import MacroBlock
 from core.event_types import EventType
 from core.mouse import mouse_move_click, mouse_move_only, mouse_down_at_current, mouse_up_at_current
+import keyboard
 from core.screen import grab_rgb_at
 
 
@@ -18,6 +19,7 @@ class MacroExecutor:
             stop_callback: Function that returns True if execution should stop
         """
         self.stop_callback = stop_callback
+        self.step_delay = 0.0  # Delay between macro blocks
 
     def should_stop(self) -> bool:
         """Check if execution should stop."""
@@ -32,12 +34,16 @@ class MacroExecutor:
         Returns:
             True if execution completed successfully, False if stopped
         """
-        for macro_block in macro_blocks:
+        for i, macro_block in enumerate(macro_blocks):
             if self.should_stop():
                 return False
 
             if not self._execute_single_block(macro_block):
                 return False
+
+            # Add step delay between blocks (except after the last block)
+            if self.step_delay > 0 and i < len(macro_blocks) - 1 and not self.should_stop():
+                time.sleep(self.step_delay)
 
         return True
 
@@ -70,28 +76,75 @@ class MacroExecutor:
 
     def _execute_keyboard(self, macro_block: MacroBlock):
         """Execute keyboard action."""
-        # TODO: Implement keyboard actions when keyboard library is available
-        print(f"Keyboard: {macro_block.event_data} ({macro_block.action})")
+        if not macro_block.event_data:
+            return
+            
+        key = macro_block.event_data
+        action = macro_block.action or "press"
+
+        normalized_key = self._normalize_key_for_keyboard_library(key)
+
+        try:
+            if action == "press":
+                keyboard.press_and_release(normalized_key)
+            else:
+                print(f"지원하지 않는 키보드 액션: {action}")
+        except Exception as e:
+            print(f"키보드 실행 실패 '{action}' for key '{key}' (normalized: '{normalized_key}'): {e}")
+
+    def _normalize_key_for_keyboard_library(self, key: str) -> str:
+        """Normalize key name for keyboard library."""
+        if not key:
+            return key
+            
+        # Single character keys - keep as lowercase
+        if len(key) == 1:
+            return key.lower()
+            
+        # Special key mappings from Tkinter/X11 to keyboard library
+        key_mapping = {
+            "Return": "enter",
+            "Escape": "esc", 
+            "BackSpace": "backspace",
+            "Tab": "tab",
+            "space": "space",
+            "Up": "up",
+            "Down": "down", 
+            "Left": "left",
+            "Right": "right",
+            "Home": "home",
+            "End": "end",
+            "Prior": "page up",
+            "Next": "page down", 
+            "Insert": "insert",
+            "Delete": "delete",
+        }
+        
+        # Function keys (F1-F12)
+        if key.startswith("F") and key[1:].isdigit():
+            return key.lower()
+            
+        # Use mapping if available, otherwise return lowercase
+        return key_mapping.get(key, key.lower())
 
     def _execute_mouse(self, macro_block: MacroBlock):
         """Execute mouse action."""
-        position = macro_block.parse_position()
-        if not position:
-            return
-
-        x, y = position
         button = macro_block.event_data or "left"
         action = macro_block.action or "click"
 
-        if action == "click":
-            mouse_move_click(x, y, button)
-        elif action == "move":
-            mouse_move_only(x, y)
-        elif action == "down":
-            mouse_move_only(x, y)
+        if action == "down":
             mouse_down_at_current(button)
         elif action == "up":
             mouse_up_at_current(button)
+        else:
+            position = macro_block.parse_position()
+            if not position:
+                return
+            x, y = position
+            if action == "click":
+                mouse_move_click(x, y, button)
+            elif action == "move":
+                mouse_move_only(x, y)
 
     def _execute_delay(self, macro_block: MacroBlock):
         """Execute delay action."""
@@ -125,12 +178,7 @@ class MacroExecutor:
         condition_type = macro_block.event_data
         position = macro_block.parse_position()
 
-        if condition_type == "image_match":
-            # TODO: Implement image matching
-            print(f"Image match condition at {position} (not implemented)")
-            return False
-
-        elif condition_type == "color_match":
+        if condition_type == "color_match":
             if not position:
                 return False
 

@@ -3,9 +3,11 @@ from typing import Callable, Optional, Tuple
 
 
 class InlineEditHandler:
-    def __init__(self, listbox, mark_dirty_callback: Optional[Callable[[bool], None]] = None):
+    def __init__(self, listbox, mark_dirty_callback: Optional[Callable[[bool], None]] = None, 
+                 update_block_callback: Optional[Callable[[int, str], None]] = None):
         self.listbox = listbox
         self.mark_dirty_callback = mark_dirty_callback
+        self.update_block_callback = update_block_callback
         
         self._inline_edit_entry = None
         self._inline_edit_idx = None
@@ -75,6 +77,11 @@ class InlineEditHandler:
         try:
             lb.delete(idx)
             lb.insert(idx, self._join_raw_desc(raw, new_desc))
+            
+            # Update the actual MacroBlock object
+            if self.update_block_callback:
+                self.update_block_callback(idx, new_desc)
+            
             if self.mark_dirty_callback:
                 self.mark_dirty_callback(True)
             lb.selection_clear(0, tk.END)

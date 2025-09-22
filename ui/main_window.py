@@ -114,9 +114,9 @@ class MacroUI:
         # 오른쪽 버튼들
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
         tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
-        tk.Button(right_frame, text="시간", width=18, command=self.add_delay).pack(pady=6)
-        tk.Button(right_frame, text="이미지조건", width=18, command=self.add_image_condition).pack(pady=6)
-        tk.Button(right_frame, text="매크로중지", width=18, command=self.add_stop_macro).pack(pady=6)
+        tk.Button(right_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
+        tk.Button(right_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
+        tk.Button(right_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=6)
         tk.Button(right_frame, text="지우기", width=18, command=self.delete_macro).pack(pady=16)
 
         self.run_btn = tk.Button(right_frame, text="▶ 실행하기", width=18, command=self.run_macros)
@@ -301,7 +301,7 @@ class MacroUI:
 
     def add_stop_macro(self):
         from core.macro_factory import MacroFactory
-        exit_block = MacroFactory.create_exit_block(True, "매크로 중지")
+        exit_block = MacroFactory.create_exit_block(True, )
         self.macro_list.insert_macro_block(exit_block)
 
     def delete_macro(self):
@@ -334,8 +334,8 @@ class MacroUI:
         self.run_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
 
-        items = self.macro_list.get_raw_items()
-        if self.executor.start_execution(items, self.settings):
+        macro_blocks = self.macro_list.get_macro_blocks()
+        if self.executor.start_execution(macro_blocks, self.settings):
             pass
         else:
             self._finish_execution()
