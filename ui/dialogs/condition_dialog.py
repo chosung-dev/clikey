@@ -4,10 +4,12 @@ import pyautogui
 from typing import Callable
 
 from core.screen import grab_rgb_at
+from core.macro_block import MacroBlock
+from core.macro_factory import MacroFactory
 
 
 class ConditionDialog:
-    def __init__(self, parent: tk.Tk, insert_callback: Callable[[str], None]):
+    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None]):
         self.parent = parent
         self.insert_callback = insert_callback
 
@@ -75,8 +77,10 @@ class ConditionDialog:
             if captured["x"] is None:
                 messagebox.showwarning("안내", "먼저 좌표/색을 캡처하세요.")
                 return
-            header = f"조건:{captured['x']},{captured['y']}={captured['r']},{captured['g']},{captured['b']}"
-            self.insert_callback(header)
+            x, y = captured['x'], captured['y']
+            expected_color = f"{captured['r']},{captured['g']},{captured['b']}"
+            macro_block = MacroFactory.create_if_block("color_match", x, y, expected_color)
+            self.insert_callback(macro_block)
             try:
                 win.grab_release()
             except Exception:

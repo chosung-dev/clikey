@@ -6,7 +6,8 @@ import pyautogui
 
 from core.state import default_settings, default_hotkeys
 from core.keyboard_hotkey import register_hotkeys
-from core.persistence import is_valid_macro_line, export_data, load_app_state, save_app_state
+from core.persistence import export_data, load_macro_data, load_app_state, save_app_state
+from core.macro_block import MacroBlock
 from ui.macro_list import MacroListManager
 from ui.execution.executor import MacroExecutor
 from ui.execution.highlighter import MacroHighlighter
@@ -107,8 +108,8 @@ class MacroUI:
             self.root, self.settings, self.hotkeys, 
             self._mark_dirty, self._register_hotkeys_if_available
         )
-        self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_smart)
-        self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_smart)
+        self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_macro_block)
+        self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_macro_block)
 
         # 오른쪽 버튼들
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
@@ -151,20 +152,10 @@ class MacroUI:
     # ---------- 파일 I/O ----------
     def _open_path(self, file_path: str) -> bool:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = load_macro_data(file_path)
 
-            items = data.get("items", [])
-            descs = data.get("descriptions", [""] * len(items))
-            
-            # 유효한 매크로 라인만 필터링
-            valid_items, valid_descs = [], []
-            for raw, d in zip(items, descs):
-                if is_valid_macro_line(raw):
-                    valid_items.append(raw)
-                    valid_descs.append(d)
-            
-            self.macro_list.load_items(valid_items, valid_descs)
+            macro_blocks = [MacroBlock.from_dict(block_data) for block_data in data["macro_blocks"]]
+            self.macro_list.load_macro_blocks(macro_blocks)
 
             settings = data.get("settings", {})
             if "repeat" in settings:
@@ -200,12 +191,9 @@ class MacroUI:
             return False
 
     def _collect_export_data(self) -> dict:
-        items_only_raw = self.macro_list.get_raw_items()
-        descs = self.macro_list.get_descriptions()
-        
-        data = export_data(items_only_raw, self.settings, self.hotkeys)
-        data["descriptions"] = descs
-        return data
+        """Collect data for export using MacroBlock format."""
+        macro_blocks = self.macro_list.get_macro_blocks()
+        return export_data(macro_blocks, self.settings, self.hotkeys)
 
     def _confirm_save_if_dirty(self) -> bool:
         if not self.is_dirty:
@@ -312,10 +300,26 @@ class MacroUI:
         self.condition_dialog.add_image_condition()
 
     def add_stop_macro(self):
-        self.macro_list.insert_smart("매크로중지")
+        from core.macro_factory import MacroFactory
+        exit_block = MacroFactory.create_exit_block(True, "매크로 중지")
+        self.macro_list.insert_macro_block(exit_block)
 
     def delete_macro(self):
-        return self.macro_list._on_delete()
+        selected_blocks = self.macro_list.get_selected_macro_blocks()
+        if not selected_blocks:
+            return
+
+        self.macro_list.delete_selected()
+
+        # Update selection after deletion
+        size = self.macro_list.size()
+        if size > 0:
+            # Select the first available item
+            self.macro_list.macro_listbox.selection_clear(0, tk.END)
+            self.macro_list.macro_listbox.selection_set(0)
+            self.macro_list.macro_listbox.activate(0)
+            self.macro_list.macro_listbox.see(0)
+            self.macro_list.selected_indices = [0]
 
     # ---------- 실행/중지 ----------
     def run_macros(self):

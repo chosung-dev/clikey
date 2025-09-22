@@ -4,10 +4,12 @@ import pyautogui
 from typing import Callable, Optional
 
 from core.screen import grab_rgb_at
+from core.macro_block import MacroBlock
+from core.macro_factory import MacroFactory
 
 
 class InputDialogs:
-    def __init__(self, parent: tk.Tk, insert_callback: Callable[[str], None]):
+    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None]):
         self.parent = parent
         self.insert_callback = insert_callback
 
@@ -30,8 +32,8 @@ class InputDialogs:
         def on_key(event):
             key = event.keysym
             action = action_var.get()
-            line = f"키보드:{key}:{action}"
-            self.insert_callback(line)
+            macro_block = MacroFactory.create_keyboard_block(key, action)
+            self.insert_callback(macro_block)
             key_window.destroy()
 
         key_window.bind("<Key>", on_key)
@@ -136,13 +138,13 @@ class InputDialogs:
             action = action_var.get()
             button = btn_var.get()
             
-            # 누르고있기와 떼기는 좌표가 필요없음 (현재 위치에서 동작)
+            # 누르고있기와 뗼기는 좌표가 필요없음 (현재 위치에서 동작)
             if action in ("down", "up"):
                 if action == "down":
-                    line = f"마우스:누름:{button}"
+                    macro_block = MacroFactory.create_mouse_block(button, "down", 0, 0)
                 else:  # action == "up"
-                    line = f"마우스:떼기:{button}"
-                self.insert_callback(line)
+                    macro_block = MacroFactory.create_mouse_block(button, "up", 0, 0)
+                self.insert_callback(macro_block)
                 on_close()
                 return
             
@@ -153,14 +155,14 @@ class InputDialogs:
                 
             x, y = captured['x'], captured['y']
             if action == "click":
-                line = f"마우스:{x},{y}:{button}"
+                macro_block = MacroFactory.create_mouse_block(button, "click", x, y)
             elif action == "move":
-                line = f"마우스:{x},{y}:이동"
+                macro_block = MacroFactory.create_mouse_block("left", "move", x, y)
             else:
                 # 기본값
-                line = f"마우스:{x},{y}:{button}"
-                
-            self.insert_callback(line)
+                macro_block = MacroFactory.create_mouse_block(button, "click", x, y)
+
+            self.insert_callback(macro_block)
             on_close()
 
         def on_close():
@@ -183,5 +185,5 @@ class InputDialogs:
     def add_delay(self):
         sec = simpledialog.askfloat("대기 시간", "대기할 초를 입력하세요:", minvalue=0, maxvalue=3600)
         if sec:
-            line = f"시간:{sec}"
-            self.insert_callback(line)
+            macro_block = MacroFactory.create_delay_block(sec)
+            self.insert_callback(macro_block)

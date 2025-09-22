@@ -3,19 +3,14 @@ from __future__ import annotations
 from typing import Dict, Any, List
 import os, json
 
-def is_valid_macro_line(s: str) -> bool:
-    if not isinstance(s, str):
-        return False
-    if s.startswith(("키보드:", "마우스:", "시간:", "조건:", "매크로중지")):
-        return True
-    if s.startswith("  ") and s[2:].startswith(("키보드:", "마우스:", "시간:", "매크로중지")):
-        return True
-    return False
+from core.macro_block import MacroBlock
 
-def export_data(list_items: List[str], settings: Dict[str, Any], hotkeys: Dict[str, Any]) -> Dict[str, Any]:
+
+def export_data(macro_blocks: List[MacroBlock], settings: Dict[str, Any], hotkeys: Dict[str, Any]) -> Dict[str, Any]:
+    """Export data using MacroBlock format."""
     return {
         "version": 1,
-        "items": list_items,
+        "macro_blocks": [block.to_dict() for block in macro_blocks],
         "settings": {
             "repeat": int(settings.get("repeat", 1)),
             "start_delay": float(settings.get("start_delay", 3)),
@@ -27,6 +22,7 @@ def export_data(list_items: List[str], settings: Dict[str, Any], hotkeys: Dict[s
             "stop": hotkeys.get("stop"),
         },
     }
+
 
 # --- 앱 상태 저장/복원: 최근 파일 경로 등 ---
 def _app_state_path() -> str:
@@ -49,3 +45,8 @@ def save_app_state(state: dict) -> None:
             json.dump(state or {}, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+def load_macro_data(file_path: str) -> Dict[str, Any]:
+    """Load macro data from file."""
+    with open(file_path, "r", encoding="utf-8") as f:
+        return json.load(f)
