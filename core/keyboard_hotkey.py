@@ -3,11 +3,6 @@ from __future__ import annotations
 from typing import Optional
 import keyboard
 
-def display_key_name(key: Optional[str]) -> str:
-    if not key:
-        return ""
-    return key.upper() if len(key) == 1 else key
-
 def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
     if not keysym:
         return None

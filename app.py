@@ -6,7 +6,9 @@ import tkinter as tk
 # Windows DPI awareness (optional)
 try:
     import ctypes
-    ctypes.windll.user32.SetProcessDPIAware()
+    import platform
+    if platform.system() == "Windows":
+        ctypes.windll.user32.SetProcessDPIAware()
 except Exception:
     pass
 

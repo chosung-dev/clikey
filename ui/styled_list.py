@@ -119,10 +119,8 @@ class StyledList(tk.Text):
     def nearest(self, y: int):
         idx = self.index(f"@0,{int(y)}")
         line = int(str(idx).split(".")[0]) - 1
-        if line < 0:
-            line = 0
-        if line >= len(self._lines):
-            line = len(self._lines) - 1 if self._lines else 0
+        if line < 0 or line >= len(self._lines):
+            line = -1
         return line
 
     def cget(self, key):

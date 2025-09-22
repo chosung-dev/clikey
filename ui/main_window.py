@@ -6,7 +6,8 @@ import pyautogui
 
 from core.state import default_settings, default_hotkeys
 from core.keyboard_hotkey import register_hotkeys
-from core.persistence import is_valid_macro_line, export_data, load_app_state, save_app_state
+from core.persistence import export_data, load_macro_data, load_app_state, save_app_state
+from core.macro_block import MacroBlock
 from ui.macro_list import MacroListManager
 from ui.execution.executor import MacroExecutor
 from ui.execution.highlighter import MacroHighlighter
@@ -72,6 +73,16 @@ class MacroUI:
         file_menu.add_command(label="종료", command=self.request_quit)
         menubar.add_cascade(label="파일", menu=file_menu)
 
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        edit_menu.add_command(label="실행취소", accelerator="Ctrl+Z", command=self._on_undo)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="복사", accelerator="Ctrl+C", command=self._on_copy)
+        edit_menu.add_command(label="잘라내기", accelerator="Ctrl+X", command=self._on_cut)
+        edit_menu.add_command(label="붙여넣기", accelerator="Ctrl+V", command=self._on_paste)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="삭제", accelerator="Delete", command=self.delete_macro)
+        menubar.add_cascade(label="편집", menu=edit_menu)
+
         settings_menu = tk.Menu(menubar, tearoff=0)
         settings_menu.add_command(label="환경 설정", command=self.open_settings)
         menubar.add_cascade(label="설정", menu=settings_menu)
@@ -107,15 +118,15 @@ class MacroUI:
             self.root, self.settings, self.hotkeys, 
             self._mark_dirty, self._register_hotkeys_if_available
         )
-        self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_smart)
-        self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_smart)
+        self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_macro_block)
+        self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_macro_block)
 
         # 오른쪽 버튼들
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
         tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
-        tk.Button(right_frame, text="시간", width=18, command=self.add_delay).pack(pady=6)
-        tk.Button(right_frame, text="이미지조건", width=18, command=self.add_image_condition).pack(pady=6)
-        tk.Button(right_frame, text="매크로중지", width=18, command=self.add_stop_macro).pack(pady=6)
+        tk.Button(right_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
+        tk.Button(right_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
+        tk.Button(right_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=6)
         tk.Button(right_frame, text="지우기", width=18, command=self.delete_macro).pack(pady=16)
 
         self.run_btn = tk.Button(right_frame, text="▶ 실행하기", width=18, command=self.run_macros)
@@ -125,6 +136,10 @@ class MacroUI:
 
     def _bind_events(self):
         self.root.bind("<Control-s>", self._on_save)
+        self.root.bind("<Control-c>", self._on_copy)
+        self.root.bind("<Control-x>", self._on_cut)
+        self.root.bind("<Control-v>", self._on_paste)
+        self.root.bind("<Control-z>", self._on_undo)
 
     def _register_hotkeys_if_available(self):
         register_hotkeys(self.root, self)
@@ -151,20 +166,10 @@ class MacroUI:
     # ---------- 파일 I/O ----------
     def _open_path(self, file_path: str) -> bool:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = load_macro_data(file_path)
 
-            items = data.get("items", [])
-            descs = data.get("descriptions", [""] * len(items))
-            
-            # 유효한 매크로 라인만 필터링
-            valid_items, valid_descs = [], []
-            for raw, d in zip(items, descs):
-                if is_valid_macro_line(raw):
-                    valid_items.append(raw)
-                    valid_descs.append(d)
-            
-            self.macro_list.load_items(valid_items, valid_descs)
+            macro_blocks = [MacroBlock.from_dict(block_data) for block_data in data["macro_blocks"]]
+            self.macro_list.load_macro_blocks(macro_blocks)
 
             settings = data.get("settings", {})
             if "repeat" in settings:
@@ -200,12 +205,9 @@ class MacroUI:
             return False
 
     def _collect_export_data(self) -> dict:
-        items_only_raw = self.macro_list.get_raw_items()
-        descs = self.macro_list.get_descriptions()
-        
-        data = export_data(items_only_raw, self.settings, self.hotkeys)
-        data["descriptions"] = descs
-        return data
+        """Collect data for export using MacroBlock format."""
+        macro_blocks = self.macro_list.get_macro_blocks()
+        return export_data(macro_blocks, self.settings, self.hotkeys)
 
     def _confirm_save_if_dirty(self) -> bool:
         if not self.is_dirty:
@@ -312,10 +314,26 @@ class MacroUI:
         self.condition_dialog.add_image_condition()
 
     def add_stop_macro(self):
-        self.macro_list.insert_smart("매크로중지")
+        from core.macro_factory import MacroFactory
+        exit_block = MacroFactory.create_exit_block(True, )
+        self.macro_list.insert_macro_block(exit_block)
 
     def delete_macro(self):
-        return self.macro_list._on_delete()
+        selected_blocks = self.macro_list.get_selected_macro_blocks()
+        if not selected_blocks:
+            return
+
+        self.macro_list.delete_selected()
+
+        # Update selection after deletion
+        size = self.macro_list.size()
+        if size > 0:
+            # Select the first available item
+            self.macro_list.macro_listbox.selection_clear(0, tk.END)
+            self.macro_list.macro_listbox.selection_set(0)
+            self.macro_list.macro_listbox.activate(0)
+            self.macro_list.macro_listbox.see(0)
+            self.macro_list.selected_indices = [0]
 
     # ---------- 실행/중지 ----------
     def run_macros(self):
@@ -330,8 +348,8 @@ class MacroUI:
         self.run_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
 
-        items = self.macro_list.get_raw_items()
-        if self.executor.start_execution(items, self.settings):
+        macro_blocks = self.macro_list.get_macro_blocks()
+        if self.executor.start_execution(macro_blocks, self.settings):
             pass
         else:
             self._finish_execution()
@@ -354,6 +372,26 @@ class MacroUI:
 
     def _on_save(self, event=None):
         self.save_file()
+        return "break"
+
+    def _on_copy(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_copy(event)
+        return "break"
+
+    def _on_cut(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_cut(event)
+        return "break"
+
+    def _on_paste(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_paste(event)
+        return "break"
+
+    def _on_undo(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_undo(event)
         return "break"
 
 
