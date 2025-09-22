@@ -67,13 +67,16 @@ class MacroExecutor:
             loop_inf = (repeat == 0)
             loops = 0
 
-            # Create core executor with stop callback and step delay
-            self.core_executor = CoreMacroExecutor(stop_callback=lambda: self.stop_flag)
+            # Create core executor with stop callback, highlighting, and step delay
+            self.core_executor = CoreMacroExecutor(
+                stop_callback=lambda: self.stop_flag,
+                highlight_callback=self._highlight_index
+            )
             self.core_executor.step_delay = step_delay
 
             while (loop_inf or loops < repeat) and not self.stop_flag:
-                # Execute macro blocks using core executor
-                if not self.core_executor.execute_macro_blocks(macro_blocks):
+                # Execute macro blocks using core executor with flat blocks for highlighting
+                if not self.core_executor.execute_macro_blocks(macro_blocks, self.current_flat_blocks):
                     break  # Execution was stopped or failed
                 
                 if self.stop_flag:

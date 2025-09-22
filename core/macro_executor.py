@@ -11,15 +11,19 @@ from core.screen import grab_rgb_at
 
 
 class MacroExecutor:
-    def __init__(self, stop_callback: Optional[Callable[[], bool]] = None):
+    def __init__(self, stop_callback: Optional[Callable[[], bool]] = None,
+                 highlight_callback: Optional[Callable[[int], None]] = None):
         """
         Initialize macro executor.
 
         Args:
             stop_callback: Function that returns True if execution should stop
+            highlight_callback: Function to call when highlighting a block by index
         """
         self.stop_callback = stop_callback
+        self.highlight_callback = highlight_callback
         self.step_delay = 0.0  # Delay between macro blocks
+        self.current_block_index = 0  # Track current block index for highlighting
 
     def should_stop(self) -> bool:
         """Check if execution should stop."""
@@ -27,9 +31,14 @@ class MacroExecutor:
             return self.stop_callback()
         return False
 
-    def execute_macro_blocks(self, macro_blocks: List[MacroBlock]) -> bool:
+    def execute_macro_blocks(self, macro_blocks: List[MacroBlock], flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
         """
         Execute a list of macro blocks recursively.
+
+        Args:
+            macro_blocks: List of macro blocks to execute
+            flat_blocks: Flat list of all blocks for highlighting indexing
+            base_index: Base index for highlighting in flat list
 
         Returns:
             True if execution completed successfully, False if stopped
@@ -38,7 +47,13 @@ class MacroExecutor:
             if self.should_stop():
                 return False
 
-            if not self._execute_single_block(macro_block):
+            # Calculate current index in flat list for highlighting
+            if flat_blocks:
+                current_flat_index = self._find_block_index_in_flat_list(macro_block, flat_blocks, base_index)
+                if current_flat_index >= 0 and self.highlight_callback:
+                    self.highlight_callback(current_flat_index)
+
+            if not self._execute_single_block(macro_block, flat_blocks, base_index):
                 return False
 
             # Add step delay between blocks (except after the last block)
@@ -47,7 +62,7 @@ class MacroExecutor:
 
         return True
 
-    def _execute_single_block(self, macro_block: MacroBlock) -> bool:
+    def _execute_single_block(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
         """Execute a single macro block."""
         if self.should_stop():
             return False
@@ -63,7 +78,7 @@ class MacroExecutor:
                 self._execute_delay(macro_block)
 
             elif macro_block.event_type == EventType.IF:
-                return self._execute_if(macro_block)
+                return self._execute_if(macro_block, flat_blocks, base_index)
 
             elif macro_block.event_type == EventType.EXIT:
                 return self._execute_exit(macro_block)
@@ -156,13 +171,13 @@ class MacroExecutor:
                 time.sleep(sleep_time)
                 delay_time -= sleep_time
 
-    def _execute_if(self, macro_block: MacroBlock) -> bool:
+    def _execute_if(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
         """Execute conditional block recursively."""
         condition_met = self._evaluate_condition(macro_block)
 
         if condition_met and macro_block.macro_blocks:
             # Recursively execute the nested macro blocks
-            return self.execute_macro_blocks(macro_block.macro_blocks)
+            return self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, base_index)
 
         return True
 
@@ -204,3 +219,10 @@ class MacroExecutor:
                 pass
 
         return False
+
+    def _find_block_index_in_flat_list(self, target_block: MacroBlock, flat_blocks: List, base_index: int = 0) -> int:
+        """Find the index of a block in the flat list using block key for identification."""
+        for i, (block, depth) in enumerate(flat_blocks):
+            if block.key == target_block.key:
+                return i
+        return -1

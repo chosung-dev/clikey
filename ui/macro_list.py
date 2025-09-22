@@ -27,15 +27,38 @@ class MacroListManager:
         self.macro_blocks: List[MacroBlock] = []
         self.selected_indices: List[int] = []
         self.flat_blocks: List[Tuple[MacroBlock, int]] = []  # (block, depth) pairs
+        self.clipboard: List[MacroBlock] = []  # Clipboard for copy/cut/paste
+        
+        # Undo functionality - store up to 5 states
+        self.undo_history: List[List[MacroBlock]] = []
+        self.max_undo_levels = 5
 
         # Bind click events for selection
         self.macro_listbox.bind('<Button-1>', self._on_click)
+        
+        # Bind delete key for deletion
+        self.macro_listbox.bind('<Delete>', self._on_delete_key)
+        self.macro_listbox.bind('<KeyPress-Delete>', self._on_delete_key)
+        
+        # Bind copy/cut/paste keys
+        self.macro_listbox.bind('<Control-c>', self._on_copy)
+        self.macro_listbox.bind('<Control-x>', self._on_cut)
+        self.macro_listbox.bind('<Control-v>', self._on_paste)
+        
+        # Bind undo key
+        self.macro_listbox.bind('<Control-z>', self._on_undo)
+        
+        # Make listbox focusable
+        self.macro_listbox.config(takefocus=True)
 
     def pack(self, **kwargs):
         self.macro_listbox.pack(**kwargs)
 
     def insert_macro_block(self, macro_block: MacroBlock):
         """Insert a MacroBlock into the list."""
+        # Save state for undo before making changes
+        self._save_state_for_undo()
+        
         sel = self.get_selected_indices()
 
         if sel:
@@ -88,6 +111,9 @@ class MacroListManager:
 
         self.selected_indices = [] if index == -1 else [index]
         self._update_selection_display()
+        
+        # Give focus to listbox for keyboard events
+        self.macro_listbox.focus_set()
 
     def _update_selection_display(self):
         """Update the visual display of selected items."""
@@ -112,6 +138,9 @@ class MacroListManager:
         """Delete the selected macro blocks."""
         if not self.selected_indices:
             return
+
+        # Save state for undo before making changes
+        self._save_state_for_undo()
 
         # Collect blocks to delete
         blocks_to_delete = []
@@ -244,3 +273,145 @@ class MacroListManager:
         if 0 <= flat_index < len(self.flat_blocks):
             block, _ = self.flat_blocks[flat_index]
             block.description = new_description
+
+    def _on_delete_key(self, event):
+        """Handle delete key press to delete selected items."""
+        # Don't delete if inline editing is active
+        if self.inline_edit.is_editing():
+            return
+            
+        selected_blocks = self.get_selected_macro_blocks()
+        if not selected_blocks:
+            return
+            
+        # Delete the selected items
+        self.delete_selected()
+        self.macro_listbox.selection_clear(0, tk.END)
+
+        return "break"
+
+    def _on_copy(self, event):
+        """Handle Ctrl+C to copy selected items."""
+        # Don't copy if inline editing is active
+        if self.inline_edit.is_editing():
+            return
+            
+        selected_blocks = self.get_selected_macro_blocks()
+        if not selected_blocks:
+            return
+            
+        # Copy selected blocks to clipboard
+        self.clipboard = [block.copy() for block in selected_blocks]
+        return "break"
+
+    def _on_cut(self, event):
+        """Handle Ctrl+X to cut selected items."""
+        # Don't cut if inline editing is active
+        if self.inline_edit.is_editing():
+            return
+            
+        selected_blocks = self.get_selected_macro_blocks()
+        if not selected_blocks:
+            return
+            
+        # Save state for undo before making changes
+        self._save_state_for_undo()
+            
+        # Copy to clipboard first
+        self.clipboard = [block.copy() for block in selected_blocks]
+        
+        # Then delete the selected items
+        self.delete_selected()
+        self.macro_listbox.selection_clear(0, tk.END)
+        
+        # Mark as dirty
+        if self.mark_dirty_callback:
+            self.mark_dirty_callback(True)
+            
+        return "break"
+
+    def _on_paste(self, event):
+        """Handle Ctrl+V to paste items from clipboard."""
+        # Don't paste if inline editing is active
+        if self.inline_edit.is_editing():
+            return
+            
+        if not self.clipboard:
+            return
+            
+        # Save state for undo before making changes
+        self._save_state_for_undo()
+            
+        # Get insertion point
+        sel = self.get_selected_indices()
+        
+        # Insert copies of clipboard items
+        for i, block in enumerate(self.clipboard):
+            copied_block = block.copy()  # Create another copy to ensure new keys
+            
+            if sel:
+                selected_idx = sel[0] + i
+                if selected_idx < len(self.flat_blocks):
+                    selected_block, selected_depth = self.flat_blocks[selected_idx]
+                    if selected_block.event_type == EventType.IF:
+                        selected_block.macro_blocks.append(copied_block)
+                    else:
+                        self._insert_after_selected_block(copied_block, selected_idx, selected_block, selected_depth)
+                else:
+                    # Insert at end if beyond current range
+                    self.macro_blocks.append(copied_block)
+            else:
+                # No selection, add to end
+                self.macro_blocks.append(copied_block)
+        
+        self._rebuild_flat_list()
+        self._refresh_display()
+        
+        # Mark as dirty
+        if self.mark_dirty_callback:
+            self.mark_dirty_callback(True)
+            
+        return "break"
+
+    def _save_state_for_undo(self):
+        """Save current state to undo history."""
+        # Deep copy the current macro blocks state
+        current_state = [block.copy() for block in self.macro_blocks]
+        
+        # Add to history
+        self.undo_history.append(current_state)
+        
+        # Keep only the last max_undo_levels states
+        if len(self.undo_history) > self.max_undo_levels:
+            self.undo_history.pop(0)
+
+    def _on_undo(self, event):
+        """Handle Ctrl+Z to undo last action."""
+        # Don't undo if inline editing is active
+        if self.inline_edit.is_editing():
+            return
+            
+        if not self.undo_history:
+            return  # No states to undo
+            
+        # Restore the last saved state
+        last_state = self.undo_history.pop()
+        self.macro_blocks = last_state
+        
+        # Rebuild and refresh display
+        self._rebuild_flat_list()
+        self._refresh_display()
+        
+        # Clear selection
+        self.selected_indices.clear()
+        self.macro_listbox.selection_clear(0, tk.END)
+        
+        # Mark as dirty
+        if self.mark_dirty_callback:
+            self.mark_dirty_callback(True)
+            
+        return "break"
+
+    def can_undo(self) -> bool:
+        """Check if undo is available."""
+        return len(self.undo_history) > 0

@@ -73,6 +73,16 @@ class MacroUI:
         file_menu.add_command(label="종료", command=self.request_quit)
         menubar.add_cascade(label="파일", menu=file_menu)
 
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        edit_menu.add_command(label="실행취소", accelerator="Ctrl+Z", command=self._on_undo)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="복사", accelerator="Ctrl+C", command=self._on_copy)
+        edit_menu.add_command(label="잘라내기", accelerator="Ctrl+X", command=self._on_cut)
+        edit_menu.add_command(label="붙여넣기", accelerator="Ctrl+V", command=self._on_paste)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="삭제", accelerator="Delete", command=self.delete_macro)
+        menubar.add_cascade(label="편집", menu=edit_menu)
+
         settings_menu = tk.Menu(menubar, tearoff=0)
         settings_menu.add_command(label="환경 설정", command=self.open_settings)
         menubar.add_cascade(label="설정", menu=settings_menu)
@@ -126,6 +136,10 @@ class MacroUI:
 
     def _bind_events(self):
         self.root.bind("<Control-s>", self._on_save)
+        self.root.bind("<Control-c>", self._on_copy)
+        self.root.bind("<Control-x>", self._on_cut)
+        self.root.bind("<Control-v>", self._on_paste)
+        self.root.bind("<Control-z>", self._on_undo)
 
     def _register_hotkeys_if_available(self):
         register_hotkeys(self.root, self)
@@ -358,6 +372,26 @@ class MacroUI:
 
     def _on_save(self, event=None):
         self.save_file()
+        return "break"
+
+    def _on_copy(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_copy(event)
+        return "break"
+
+    def _on_cut(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_cut(event)
+        return "break"
+
+    def _on_paste(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_paste(event)
+        return "break"
+
+    def _on_undo(self, event=None):
+        if self.macro_list:
+            self.macro_list._on_undo(event)
         return "break"
 
 

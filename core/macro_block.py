@@ -2,8 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Union
 import json
-import time
-import hashlib
+import uuid
 
 from core.event_types import EventType
 
@@ -20,10 +19,8 @@ class MacroBlock:
 
     @staticmethod
     def _generate_key() -> str:
-        """Generate a unique key using timestamp and random hash."""
-        timestamp = str(time.time())
-        data = f"{timestamp}_{time.time_ns()}"
-        return hashlib.md5(data.encode()).hexdigest()[:12]
+        """Generate a unique key using UUID4."""
+        return str(uuid.uuid4())[:12]
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert MacroBlock to dictionary for JSON serialization."""
@@ -97,3 +94,17 @@ class MacroBlock:
             return (int(x.strip()), int(y.strip()))
         except (ValueError, AttributeError):
             return None
+
+    def copy(self) -> 'MacroBlock':
+        """Create a copy of this MacroBlock with a new key."""
+        copied_nested_blocks = [block.copy() for block in self.macro_blocks]
+        
+        return MacroBlock(
+            event_type=self.event_type,
+            event_data=self.event_data,
+            action=self.action,
+            position=self.position,
+            description=self.description,
+            macro_blocks=copied_nested_blocks,
+            key=MacroBlock._generate_key()  # Generate new key
+        )
