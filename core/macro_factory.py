@@ -1,6 +1,6 @@
 # core/macro_factory.py
 from core.macro_block import MacroBlock
-from core.event_types import EventType
+from core.event_types import EventType, ConditionType
 
 
 class MacroFactory:
@@ -36,18 +36,6 @@ class MacroFactory:
             description=description
         )
 
-    @staticmethod
-    def create_if_block(condition_type: str, x: int, y: int, expected_value: str = "",
-                       description: str = "") -> MacroBlock:
-        """Create an IF conditional macro block."""
-        return MacroBlock(
-            event_type=EventType.IF,
-            event_data=condition_type,
-            action=expected_value,
-            position=f"{x},{y}",
-            description=description,
-            macro_blocks=[]
-        )
 
     @staticmethod
     def create_exit_block(should_exit: bool = True, description: str = "") -> MacroBlock:
@@ -56,4 +44,33 @@ class MacroFactory:
             event_type=EventType.EXIT,
             action=should_exit,
             description=description
+        )
+
+    @staticmethod
+    def create_image_match_block(template_path: str, description: str = "") -> MacroBlock:
+        """Create an image match conditional block using IF event type."""
+        import os
+        filename = os.path.basename(template_path)
+        name_without_ext = os.path.splitext(filename)[0]
+
+        return MacroBlock(
+            event_type=EventType.IF,
+            event_data=name_without_ext,
+            action=template_path,
+            condition_type=ConditionType.IMAGE_MATCH,
+            description=description,
+            macro_blocks=[]  # 일치할 경우 실행할 블록들을 위한 컨테이너
+        )
+
+    @staticmethod
+    def create_rgb_match_block(x: int, y: int, expected_rgb: str, description: str = "") -> MacroBlock:
+        """Create an RGB match conditional block using IF event type."""
+        return MacroBlock(
+            event_type=EventType.IF,
+            event_data="rgb_check",
+            action=expected_rgb,
+            position=f"{x},{y}",
+            condition_type=ConditionType.RGB_MATCH,
+            description=description,
+            macro_blocks=[]  # 일치할 경우 실행할 블록들을 위한 컨테이너
         )

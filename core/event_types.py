@@ -7,3 +7,8 @@ class EventType(Enum):
     DELAY = "delay"
     IF = "if"
     EXIT = "exit"
+
+
+class ConditionType(Enum):
+    RGB_MATCH = "rgb_match"
+    IMAGE_MATCH = "image_match"

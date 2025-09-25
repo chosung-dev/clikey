@@ -8,6 +8,7 @@ from core.state import default_settings, default_hotkeys
 from core.keyboard_hotkey import register_hotkeys
 from core.persistence import export_data, load_macro_data, load_app_state, save_app_state
 from core.macro_block import MacroBlock
+from core.event_types import EventType
 from ui.macro_list import MacroListManager
 from ui.execution.executor import MacroExecutor
 from ui.execution.highlighter import MacroHighlighter
@@ -126,6 +127,7 @@ class MacroUI:
         tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
         tk.Button(right_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
         tk.Button(right_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
+        tk.Button(right_frame, text="이미지조건", width=18, command=self.add_image_match_condition).pack(pady=6)
         tk.Button(right_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=6)
         tk.Button(right_frame, text="지우기", width=18, command=self.delete_macro).pack(pady=16)
 
@@ -305,13 +307,26 @@ class MacroUI:
         self.input_dialogs.add_keyboard()
 
     def add_mouse(self):
-        self.input_dialogs.add_mouse()
+        # 현재 선택된 매크로 블록이 이미지 조건인지 확인
+        selected_blocks = self.macro_list.get_selected_macro_blocks()
+        selected_condition_block = None
+
+        if selected_blocks:
+            for block in selected_blocks:
+                if hasattr(block, 'event_type') and block.event_type == EventType.IF and hasattr(block, 'condition_type') and block.condition_type:
+                    selected_condition_block = block
+                    break
+
+        self.input_dialogs.add_mouse(selected_condition_block)
 
     def add_delay(self):
         self.input_dialogs.add_delay()
 
     def add_image_condition(self):
         self.condition_dialog.add_image_condition()
+
+    def add_image_match_condition(self):
+        self.condition_dialog.add_image_match_condition()
 
     def add_stop_macro(self):
         from core.macro_factory import MacroFactory

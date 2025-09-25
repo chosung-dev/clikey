@@ -33,10 +33,10 @@ class InputDialogs:
         key_window.bind("<Key>", on_key)
         key_window.focus_set()
 
-    def add_mouse(self):
+    def add_mouse(self, selected_condition_block=None):
         mouse_win = tk.Toplevel(self.parent)
         mouse_win.title("마우스 입력")
-        mouse_win.geometry("400x330+540+320")
+        mouse_win.geometry("400x380+540+320")
         mouse_win.resizable(False, False)
 
         mouse_win.transient(self.parent)
@@ -79,6 +79,7 @@ class InputDialogs:
 
 
         captured = {"x": None, "y": None}
+        selected_reference = {"block": None, "display_name": None}
 
         def update_ui_state():
             """동작 타입에 따라 UI 상태 업데이트"""
@@ -113,7 +114,10 @@ class InputDialogs:
 
         def tick():
             x, y = pyautogui.position()
-            pos_var.set(f"현재 좌표: ({x}, {y})")
+            if selected_reference["block"] and selected_reference["display_name"]:
+                pos_var.set(f"현재 좌표: {selected_reference['display_name']}")
+            else:
+                pos_var.set(f"현재 좌표: ({x}, {y})")
             mouse_win.after(80, tick)
 
         tick()
@@ -126,12 +130,15 @@ class InputDialogs:
                 return
             r, g, b = rgb
             captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
+            # 상위좌표 모드를 해제하고 일반 좌표 캡처 모드로 전환
+            selected_reference["block"] = None
+            selected_reference["display_name"] = None
             info.config(text=f"캡처됨: ({x}, {y}) / RGB=({r},{g},{b})")
 
         def add_item():
             action = action_var.get()
             button = btn_var.get()
-            
+
             # 누르고있기와 뗼기는 좌표가 필요없음 (현재 위치에서 동작)
             if action in ("down", "up"):
                 if action == "down":
@@ -141,12 +148,26 @@ class InputDialogs:
                 self.insert_callback(macro_block)
                 on_close()
                 return
-            
+
+            # 상위좌표가 선택된 경우
+            if selected_reference["block"] and selected_reference["display_name"]:
+                if action == "move":
+                    macro_block = MacroFactory.create_mouse_block("left", "move", 0, 0)
+                else:  # click
+                    macro_block = MacroFactory.create_mouse_block(button, "click", 0, 0)
+
+                # 상위좌표 참조 설정
+                macro_block.position = "@parent"
+
+                self.insert_callback(macro_block)
+                on_close()
+                return
+
             # 클릭과 이동하기는 좌표가 필요함
             if captured["x"] is None:
                 messagebox.showwarning("안내", "먼저 좌표를 캡처하세요.")
                 return
-                
+
             x, y = captured['x'], captured['y']
             if action == "click":
                 macro_block = MacroFactory.create_mouse_block(button, "click", x, y)
@@ -173,7 +194,37 @@ class InputDialogs:
         btns = tk.Frame(frame)
         btns.pack(pady=10)
         tk.Button(btns, text="좌표 캡처 (Enter)", width=16, command=capture).grid(row=0, column=0, padx=5)
-        tk.Button(btns, text="추가 (Ctrl+Enter)", width=16, command=add_item).grid(row=0, column=1, padx=5)
+
+        # 상위좌표 버튼 - 선택된 조건이 있거나 다른 이미지 조건이 있을 때 활성화
+        def on_reference_click():
+            if selected_condition_block:
+                # 선택된 조건을 상위좌표로 설정
+                selected_reference["block"] = selected_condition_block
+                selected_reference["display_name"] = selected_condition_block.event_data
+                # 캡처된 좌표 정보 초기화
+                captured["x"] = None
+                captured["y"] = None
+                info.config(text=f"상위좌표 선택됨: {selected_condition_block.event_data}\n[추가] 버튼을 클릭하세요.")
+            else:
+                # 다른 이미지 조건을 선택할 수 있도록 기존 함수 호출
+                def on_reference_selected(block):
+                    # 선택된 블록을 상위좌표로 설정
+                    selected_reference["block"] = block
+                    selected_reference["display_name"] = block.event_data
+                    # 캡처된 좌표 정보 초기화
+                    captured["x"] = None
+                    captured["y"] = None
+                    info.config(text=f"상위좌표 선택됨: {block.event_data}\n[추가] 버튼을 클릭하세요.")
+
+                self.show_reference_selector_with_callback(mouse_win, on_reference_selected)
+
+        ref_btn = tk.Button(btns, text="상위좌표", width=16, command=on_reference_click)
+        ref_btn.grid(row=0, column=1, padx=5)
+
+        # 초기 상태에서 버튼 상태 확인
+        self.update_reference_button_state(ref_btn, selected_condition_block)
+
+        tk.Button(btns, text="추가 (Ctrl+Enter)", width=16, command=add_item).grid(row=1, column=0, columnspan=2, padx=5, pady=5)
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
 
     def add_delay(self):
@@ -233,3 +284,155 @@ class InputDialogs:
         # 키 바인딩
         delay_window.bind("<Return>", lambda e: add_delay_item())
         delay_window.bind("<Escape>", lambda e: on_close())
+
+    def show_reference_selector(self, parent_win, btn_var, action_var, add_callback, cancel_callback):
+        """상위좌표 선택 다이얼로그를 표시"""
+        from core.state import GlobalState
+
+        # 사용 가능한 조건 블록들 찾기
+        condition_blocks = []
+        if hasattr(GlobalState, 'current_macro') and GlobalState.current_macro and hasattr(GlobalState.current_macro, 'macro_blocks'):
+            for block in GlobalState.current_macro.macro_blocks:
+                if (hasattr(block, 'event_type') and block.event_type.value == 'if' and
+                    hasattr(block, 'condition_type') and block.condition_type):
+                    condition_blocks.append(block)
+
+        if not condition_blocks:
+            messagebox.showinfo("안내", "먼저 조건 블록을 추가해야 합니다.")
+            return
+
+        selector_win = tk.Toplevel(parent_win)
+        selector_win.title("상위좌표 선택")
+        selector_win.geometry("350x300+600+350")
+        selector_win.resizable(False, False)
+        selector_win.transient(parent_win)
+        selector_win.lift()
+        selector_win.grab_set()
+        selector_win.focus_force()
+
+        frame = tk.Frame(selector_win, padx=10, pady=10)
+        frame.pack(fill="both", expand=True)
+
+        tk.Label(frame, text="참조할 조건을 선택하세요:", font=("맑은 고딕", 11)).pack(pady=(0, 10))
+
+        # 리스트박스로 image_match 블록들 표시
+        listbox = tk.Listbox(frame, height=8)
+        listbox.pack(fill="both", expand=True, pady=(0, 10))
+
+        for block in condition_blocks:
+            if hasattr(block, 'condition_type') and block.condition_type:
+                condition_type_name = "이미지매치" if block.condition_type.value == "image_match" else "RGB매치"
+                display_text = f"{block.event_data} ({condition_type_name})"
+            else:
+                display_text = f"{block.event_data} (조건)"
+            listbox.insert(tk.END, display_text)
+
+        selected_block = {"value": None}
+
+        def on_select():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("안내", "조건을 선택하세요.")
+                return
+
+            selected_block["value"] = condition_blocks[selection[0]]
+
+            # 마우스 블록 생성
+            button = btn_var.get()
+            action = action_var.get()
+
+            if action in ("down", "up"):
+                macro_block = MacroFactory.create_mouse_block(button, action, 0, 0)
+            else:
+                # 상위좌표 참조 설정
+                reference_text = f"{selected_block['value'].event_data}.x, {selected_block['value'].event_data}.y"
+                if action == "move":
+                    macro_block = MacroFactory.create_mouse_block("left", "move", 0, 0)
+                else:  # click
+                    macro_block = MacroFactory.create_mouse_block(button, "click", 0, 0)
+
+                macro_block.position = reference_text
+
+            self.insert_callback(macro_block)
+            selector_win.destroy()
+
+        def on_cancel():
+            selected_block["value"] = None
+            selector_win.destroy()
+
+        btn_frame = tk.Frame(frame)
+        btn_frame.pack()
+        tk.Button(btn_frame, text="선택", command=on_select, width=10).grid(row=0, column=0, padx=5)
+        tk.Button(btn_frame, text="취소", command=on_cancel, width=10).grid(row=0, column=1, padx=5)
+
+        selector_win.bind("<Escape>", lambda e: on_cancel())
+
+    def show_reference_selector_with_callback(self, parent_win, on_select_callback):
+        """상위좌표 선택 다이얼로그를 표시하고 선택시 콜백 함수 호출"""
+        from core.state import GlobalState
+
+        # 사용 가능한 조건 블록들 찾기
+        condition_blocks = []
+        if hasattr(GlobalState, 'current_macro') and GlobalState.current_macro and hasattr(GlobalState.current_macro, 'macro_blocks'):
+            for block in GlobalState.current_macro.macro_blocks:
+                if (hasattr(block, 'event_type') and block.event_type.value == 'if' and
+                    hasattr(block, 'condition_type') and block.condition_type):
+                    condition_blocks.append(block)
+
+        if not condition_blocks:
+            messagebox.showinfo("안내", "먼저 조건 블록을 추가해야 합니다.")
+            return
+
+        selector_win = tk.Toplevel(parent_win)
+        selector_win.title("상위좌표 선택")
+        selector_win.geometry("350x300+600+350")
+        selector_win.resizable(False, False)
+        selector_win.transient(parent_win)
+        selector_win.lift()
+        selector_win.grab_set()
+        selector_win.focus_force()
+
+        frame = tk.Frame(selector_win, padx=10, pady=10)
+        frame.pack(fill="both", expand=True)
+
+        tk.Label(frame, text="참조할 조건을 선택하세요:", font=("맑은 고딕", 11)).pack(pady=(0, 10))
+
+        # 리스트박스로 image_match 블록들 표시
+        listbox = tk.Listbox(frame, height=8)
+        listbox.pack(fill="both", expand=True, pady=(0, 10))
+
+        for block in condition_blocks:
+            if hasattr(block, 'condition_type') and block.condition_type:
+                condition_type_name = "이미지매치" if block.condition_type.value == "image_match" else "RGB매치"
+                display_text = f"{block.event_data} ({condition_type_name})"
+            else:
+                display_text = f"{block.event_data} (조건)"
+            listbox.insert(tk.END, display_text)
+
+        def on_select():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("안내", "조건을 선택하세요.")
+                return
+
+            selected_block = condition_blocks[selection[0]]
+            on_select_callback(selected_block)
+            selector_win.destroy()
+
+        def on_cancel():
+            selector_win.destroy()
+
+        btn_frame = tk.Frame(frame)
+        btn_frame.pack()
+        tk.Button(btn_frame, text="선택", command=on_select, width=10).grid(row=0, column=0, padx=5)
+        tk.Button(btn_frame, text="취소", command=on_cancel, width=10).grid(row=0, column=1, padx=5)
+
+        selector_win.bind("<Escape>", lambda e: on_cancel())
+
+    def update_reference_button_state(self, button, selected_condition_block=None):
+        """이미지 조건 블록이 있는지 확인하여 버튼 상태 업데이트"""
+        # 선택된 조건이 있을 때만 활성화
+        if selected_condition_block:
+            button.config(state="normal")
+        else:
+            button.config(state="disabled")

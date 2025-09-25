@@ -5,6 +5,7 @@ from ui.styled_list import StyledList
 from utils.inline_edit import InlineEditHandler
 from core.macro_block import MacroBlock
 from core.event_types import EventType
+from core.state import GlobalState
 
 
 class MacroListManager:
@@ -65,15 +66,27 @@ class MacroListManager:
             selected_idx = sel[0]
             selected_block, selected_depth = self.flat_blocks[selected_idx]
             if selected_block.event_type == EventType.IF:
+                # 조건 내부에 추가: 이미지 매치 조건이 아니면 상위좌표 참조 정리
+                is_image_match_copy = (macro_block.event_type == EventType.IF and
+                                     hasattr(macro_block, 'condition_type') and
+                                     macro_block.condition_type and
+                                     macro_block.condition_type.value == 'image_match')
+                self._clear_reference_positions_if_needed(macro_block, selected_block, is_image_match_copy)
                 selected_block.macro_blocks.append(macro_block)
             else:
                 self._insert_after_selected_block(macro_block, selected_idx, selected_block, selected_depth)
         else:
-            # No selection, add to end
+            # No selection, add to end: 루트 레벨이므로 상위좌표 참조 정리
+            is_image_match_copy = (macro_block.event_type == EventType.IF and
+                                 hasattr(macro_block, 'condition_type') and
+                                 macro_block.condition_type and
+                                 macro_block.condition_type.value == 'image_match')
+            self._clear_reference_positions_if_needed(macro_block, None, is_image_match_copy)
             self.macro_blocks.append(macro_block)
 
         self._rebuild_flat_list()
         self._refresh_display()
+        self._update_global_state()
 
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
@@ -94,6 +107,7 @@ class MacroListManager:
         self.macro_blocks = macro_blocks.copy()
         self._rebuild_flat_list()
         self._refresh_display()
+        self._update_global_state()
 
     def _split_raw_desc(self, s: str) -> Tuple[str, str]:
         if " - " in s:
@@ -156,6 +170,7 @@ class MacroListManager:
         self.selected_indices.clear()
         self._rebuild_flat_list()
         self._refresh_display()
+        self._update_global_state()
 
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
@@ -234,10 +249,18 @@ class MacroListManager:
 
     def _insert_after_selected_block(self, macro_block: MacroBlock, selected_idx: int, selected_block: MacroBlock, selected_depth: int):
         """Insert a macro block after the selected block at the correct position."""
+        # 이미지 매치 조건 블록인지 확인
+        is_image_match_copy = (macro_block.event_type == EventType.IF and
+                             hasattr(macro_block, 'condition_type') and
+                             macro_block.condition_type and
+                             macro_block.condition_type.value == 'image_match')
+
         if selected_depth == 0:
-            # Selected block is at root level
+            # Selected block is at root level: 루트 레벨이므로 상위좌표 참조 정리
             root_idx = self.macro_blocks.index(selected_block)
+            self._clear_reference_positions_if_needed(macro_block, None, is_image_match_copy)
             self.macro_blocks.insert(root_idx + 1, macro_block)
+
         else:
             # Selected block is nested, find its parent and insert after the selected block
             parent_block = self._find_parent_block(selected_idx, selected_block)
@@ -245,13 +268,19 @@ class MacroListManager:
                 # Find the index of selected_block in parent's macro_blocks
                 if selected_block in parent_block.macro_blocks:
                     child_idx = parent_block.macro_blocks.index(selected_block)
+                    # 부모가 이미지 매치 조건이 아니면 상위좌표 참조 정리
+                    self._clear_reference_positions_if_needed(macro_block, parent_block, is_image_match_copy)
                     parent_block.macro_blocks.insert(child_idx + 1, macro_block)
                 else:
                     # Fallback: add to end of parent's macro_blocks
+                    self._clear_reference_positions_if_needed(macro_block, parent_block, is_image_match_copy)
                     parent_block.macro_blocks.append(macro_block)
+
             else:
-                # Fallback: add to root level
+                # Fallback: add to root level: 루트 레벨이므로 상위좌표 참조 정리
+                self._clear_reference_positions_if_needed(macro_block, None, is_image_match_copy)
                 self.macro_blocks.append(macro_block)
+
 
     def _find_parent_block(self, selected_idx: int, selected_block: MacroBlock) -> Optional[MacroBlock]:
         """Find the parent block of the selected block."""
@@ -347,21 +376,31 @@ class MacroListManager:
         
         # Insert copies of clipboard items
         for i, block in enumerate(self.clipboard):
-            copied_block = block.copy()  # Create another copy to ensure new keys
-            
+            copied_block = block.copy()
+
+            # 이미지 매치 조건 블록인지 확인
+            is_image_match_copy = (copied_block.event_type == EventType.IF and
+                                 hasattr(copied_block, 'condition_type') and
+                                 copied_block.condition_type and
+                                 copied_block.condition_type.value == 'image_match')
+
             if sel:
                 selected_idx = sel[0] + i
                 if selected_idx < len(self.flat_blocks):
                     selected_block, selected_depth = self.flat_blocks[selected_idx]
                     if selected_block.event_type == EventType.IF:
+                        # 조건 내부에 추가: 이미지 매치 조건이 아니면 상위좌표 참조 정리
+                        self._clear_reference_positions_if_needed(copied_block, selected_block, is_image_match_copy)
                         selected_block.macro_blocks.append(copied_block)
                     else:
                         self._insert_after_selected_block(copied_block, selected_idx, selected_block, selected_depth)
                 else:
-                    # Insert at end if beyond current range
+                    # Insert at end if beyond current range: 루트 레벨이므로 상위좌표 참조 정리
+                    self._clear_reference_positions_if_needed(copied_block, None, is_image_match_copy)
                     self.macro_blocks.append(copied_block)
             else:
-                # No selection, add to end
+                # No selection, add to end: 루트 레벨이므로 상위좌표 참조 정리
+                self._clear_reference_positions_if_needed(copied_block, None, is_image_match_copy)
                 self.macro_blocks.append(copied_block)
         
         self._rebuild_flat_list()
@@ -401,17 +440,57 @@ class MacroListManager:
         # Rebuild and refresh display
         self._rebuild_flat_list()
         self._refresh_display()
-        
+        self._update_global_state()
+
         # Clear selection
         self.selected_indices.clear()
         self.macro_listbox.selection_clear(0, tk.END)
-        
+
         # Mark as dirty
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
             
         return "break"
 
-    def can_undo(self) -> bool:
-        """Check if undo is available."""
-        return len(self.undo_history) > 0
+
+    def _clear_reference_positions_if_needed(self, block: MacroBlock, target_parent: MacroBlock = None, is_image_match_block_copy: bool = False):
+        """Clear reference positions for mouse blocks if they are not inside an image match condition."""
+        # 이미지 매치 조건 블록 자체를 복사하는 경우, 내부 참조는 그대로 유지
+        if is_image_match_block_copy:
+            return
+
+        # 현재 블록이 마우스 블록이고 상위좌표 참조를 가지고 있는지 확인
+        if (block.event_type == EventType.MOUSE and
+            hasattr(block, 'clear_reference_position') and
+            block.has_reference_position()):
+
+            # 대상 부모가 이미지 매치 조건이 아니면 참조를 0,0으로 변경
+            if not (target_parent and
+                   target_parent.event_type == EventType.IF and
+                   hasattr(target_parent, 'condition_type') and
+                   target_parent.condition_type and
+                   target_parent.condition_type.value == 'image_match'):
+                block.clear_reference_position()
+
+        # 중첩된 블록들도 재귀적으로 처리
+        if hasattr(block, 'macro_blocks') and block.macro_blocks:
+            for child_block in block.macro_blocks:
+                # 현재 블록이 이미지 매치 조건이면 하위 블록들의 참조는 유지
+                child_is_image_match_copy = (block.event_type == EventType.IF and
+                                           hasattr(block, 'condition_type') and
+                                           block.condition_type and
+                                           block.condition_type.value == 'image_match')
+
+                self._clear_reference_positions_if_needed(child_block, target_parent, child_is_image_match_copy)
+
+
+
+
+    def _update_global_state(self):
+        """Update global state with current macro information."""
+        # 현재 매크로 정보를 객체로 만들어 GlobalState에 저장
+        class CurrentMacro:
+            def __init__(self, macro_blocks):
+                self.macro_blocks = macro_blocks
+
+        GlobalState.current_macro = CurrentMacro(self.macro_blocks)

@@ -1,7 +1,10 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import pyautogui
 from typing import Callable
+import os
+import tempfile
+from PIL import Image, ImageTk
 
 from core.screen import grab_rgb_at
 from core.macro_block import MacroBlock
@@ -102,7 +105,7 @@ class ConditionDialog:
                 return
             x, y = captured['x'], captured['y']
             expected_color = f"{captured['r']},{captured['g']},{captured['b']}"
-            macro_block = MacroFactory.create_if_block("color_match", x, y, expected_color)
+            macro_block = MacroFactory.create_rgb_match_block(x, y, expected_color)
             self.insert_callback(macro_block)
             try:
                 win.grab_release()
@@ -146,3 +149,149 @@ class ConditionDialog:
         win.bind("<Return>", lambda e: capture())
         win.bind("<Control-Return>", lambda e: apply_block())
         win.bind("<Escape>", on_escape)
+
+    def add_image_match_condition(self):
+        win = tk.Toplevel(self.parent)
+        win.title("이미지 조건")
+        win.geometry("400x350+560+320")
+        win.resizable(False, False)
+        win.transient(self.parent)
+        win.lift()
+        win.grab_set()
+        win.focus_force()
+
+        frm = tk.Frame(win, padx=10, pady=10)
+        frm.pack(fill="both", expand=True)
+
+        msg = tk.Label(frm, text="매칭할 이미지를 선택하거나 클립보드에서 붙여넣으세요.", justify="center", font=("맑은 고딕", 11))
+        msg.pack(pady=10)
+
+        selected_file = {"path": None}
+        file_label = tk.Label(frm, text="선택된 파일: 없음", fg="gray", wraplength=350, justify="left")
+        file_label.pack(pady=5)
+
+        # 이미지 미리보기 프레임
+        preview_frame = tk.Frame(frm)
+        preview_frame.pack(pady=5)
+        preview_label = tk.Label(preview_frame, text="", bg="white", relief="sunken", width=30, height=8)
+        preview_label.pack()
+
+        def select_file():
+            file_path = filedialog.askopenfilename(
+                title="이미지 파일 선택",
+                filetypes=[
+                    ("이미지 파일", "*.png *.jpg *.jpeg *.bmp *.tiff *.gif"),
+                    ("PNG 파일", "*.png"),
+                    ("JPEG 파일", "*.jpg *.jpeg"),
+                    ("모든 파일", "*.*")
+                ]
+            )
+            if file_path:
+                selected_file["path"] = file_path
+                filename = os.path.basename(file_path)
+                file_label.config(text=f"선택된 파일: {filename}", fg="blue")
+                self.show_image_preview(file_path, preview_label)
+
+        def paste_from_clipboard():
+            success = False
+
+            # 방법 1: PIL의 ImageGrab 시도
+            try:
+                from PIL import ImageGrab
+                img = ImageGrab.grabclipboard()
+                if img:
+                    # 임시 파일 생성
+                    temp_dir = tempfile.gettempdir()
+                    temp_path = os.path.join(temp_dir, f"clipboard_image_{os.getpid()}.png")
+                    img.save(temp_path)
+
+                    selected_file["path"] = temp_path
+                    file_label.config(text="선택된 파일: 클립보드에서 붙여넣기", fg="green")
+                    self.show_image_preview(temp_path, preview_label)
+                    success = True
+                else:
+                    messagebox.showinfo("알림", "클립보드에 이미지가 없습니다.")
+                    return
+            except ImportError:
+                pass
+            except Exception as e:
+                print(f"PIL ImageGrab 실패: {e}")
+
+            if success:
+                return
+
+            try:
+                import win32clipboard
+                from PIL import Image
+                import io
+
+                win32clipboard.OpenClipboard()
+                try:
+                    # CF_DIB 형식 확인
+                    if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_DIB):
+                        data = win32clipboard.GetClipboardData(win32clipboard.CF_DIB)
+                        # 이 부분은 복잡한 DIB 파싱이 필요하므로 생략
+                        messagebox.showinfo("안내", "현재 클립보드 형식은 지원되지 않습니다.\n이미지를 파일로 저장한 후 '파일 선택' 버튼을 사용해주세요.")
+                    else:
+                        messagebox.showinfo("알림", "클립보드에 이미지가 없습니다.")
+                finally:
+                    win32clipboard.CloseClipboard()
+            except ImportError:
+                messagebox.showinfo("안내", "클립보드 기능을 사용하려면 pywin32가 필요합니다.\n'pip install pywin32'로 설치하세요.")
+            except Exception as e:
+                messagebox.showerror("오류", f"클립보드 접근 중 오류 발생: {str(e)}")
+
+
+        def apply_block():
+            if not selected_file["path"]:
+                messagebox.showwarning("안내", "먼저 이미지 파일을 선택하거나 클립보드에서 붙여넣으세요.")
+                return
+
+            try:
+                macro_block = MacroFactory.create_image_match_block(selected_file["path"])
+                self.insert_callback(macro_block)
+                on_close()
+            except Exception as e:
+                messagebox.showerror("오류", f"이미지 조건 블록 생성 중 오류가 발생했습니다: {str(e)}")
+
+        def on_close():
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+
+        def on_paste_key(event):
+            """Ctrl+V 키 바인딩"""
+            paste_from_clipboard()
+            return "break"
+
+        btn_frame = tk.Frame(frm)
+        btn_frame.pack(pady=15)
+
+        tk.Button(btn_frame, text="파일 선택", command=select_file, width=12).grid(row=0, column=0, padx=5)
+        tk.Button(btn_frame, text="클립보드 붙여넣기", command=paste_from_clipboard, width=15).grid(row=0, column=1, padx=5)
+        tk.Button(btn_frame, text="추가", command=apply_block, width=12).grid(row=1, column=0, padx=5, pady=5)
+        tk.Button(btn_frame, text="취소", command=on_close, width=12).grid(row=1, column=1, padx=5, pady=5)
+
+        win.bind("<Escape>", lambda e: on_close())
+        win.bind("<Control-v>", on_paste_key)
+
+    def show_image_preview(self, image_path, preview_label):
+        """이미지 미리보기 표시"""
+        try:
+            # PIL로 이미지 로드 및 리사이즈
+            with Image.open(image_path) as img:
+                # 비율 유지하면서 120x80 안에 맞추기
+                img.thumbnail((120, 80), Image.Resampling.LANCZOS)
+
+                # tkinter에서 사용할 수 있는 형태로 변환
+                photo = ImageTk.PhotoImage(img)
+
+                # 레이블에 이미지 표시
+                preview_label.configure(image=photo, text="")
+                preview_label.image = photo  # 참조 유지 (가비지 컬렉션 방지)
+
+        except Exception as e:
+            preview_label.configure(image="", text=f"미리보기 오류:\n{str(e)}")
+            preview_label.image = None

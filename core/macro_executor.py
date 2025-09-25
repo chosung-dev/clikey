@@ -78,13 +78,12 @@ class MacroExecutor:
                 self._execute_delay(macro_block)
 
             elif macro_block.event_type == EventType.IF:
-                return self._execute_if(macro_block, flat_blocks, base_index)
+                self._execute_condition(macro_block, flat_blocks, base_index)
 
             elif macro_block.event_type == EventType.EXIT:
                 return self._execute_exit(macro_block)
 
-        except Exception as e:
-            print(f"Error executing macro block: {e}")
+        except Exception:
             return False
 
         return True
@@ -102,10 +101,8 @@ class MacroExecutor:
         try:
             if action == "press":
                 keyboard.press_and_release(normalized_key)
-            else:
-                print(f"지원하지 않는 키보드 액션: {action}")
-        except Exception as e:
-            print(f"키보드 실행 실패 '{action}' for key '{key}' (normalized: '{normalized_key}'): {e}")
+        except Exception:
+            pass
 
     def _normalize_key_for_keyboard_library(self, key: str) -> str:
         """Normalize key name for keyboard library."""
@@ -152,10 +149,17 @@ class MacroExecutor:
         elif action == "up":
             mouse_up_at_current(button)
         else:
-            position = macro_block.parse_position()
-            if not position:
-                return
-            x, y = position
+            # 상위좌표 참조인지 확인
+            if macro_block.position and (macro_block.position.strip() == "@parent" or "." in macro_block.position):
+                x, y = self._resolve_position_reference(macro_block.position)
+                if x is None or y is None:
+                    return
+            else:
+                position = macro_block.parse_position()
+                if not position:
+                    return
+                x, y = position
+
             if action == "click":
                 mouse_move_click(x, y, button)
             elif action == "move":
@@ -176,8 +180,11 @@ class MacroExecutor:
         condition_met = self._evaluate_condition(macro_block)
 
         if condition_met and macro_block.macro_blocks:
-            # Recursively execute the nested macro blocks
-            return self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, base_index)
+            # Recursively execute the nested macro blocks (실패해도 다음 블록들은 계속 실행)
+            try:
+                self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, base_index)
+            except Exception:
+                pass
 
         return True
 
@@ -188,37 +195,171 @@ class MacroExecutor:
             return False  # Stop execution
         return True
 
-    def _evaluate_condition(self, macro_block: MacroBlock) -> bool:
-        """Evaluate the condition for an IF block."""
-        condition_type = macro_block.event_data
-        position = macro_block.parse_position()
 
-        if condition_type == "color_match":
-            if not position:
+    def _execute_condition(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
+        """Execute conditional block based on condition type."""
+        from core.event_types import ConditionType
+
+        if macro_block.condition_type == ConditionType.IMAGE_MATCH:
+            return self._execute_image_match_condition(macro_block, flat_blocks, base_index)
+        elif macro_block.condition_type == ConditionType.RGB_MATCH:
+            return self._execute_rgb_match_condition(macro_block, flat_blocks, base_index)
+        else:
+            # 기존 IF 조건 (RGB 체크) - 하위 호환성을 위해
+            return self._execute_if(macro_block, flat_blocks, base_index)
+
+    def _execute_image_match_condition(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
+        """Execute image match condition."""
+        from core.image_matcher import ImageMatcher
+        from core.state import GlobalState
+
+        if not macro_block.action:  # action contains the image path
+            return True
+
+        template_path = macro_block.action
+        result = ImageMatcher.find_image_on_screen(template_path)
+
+        if result:
+            # 이미지를 찾은 경우, 좌표 정보를 전역 상태에 저장
+            context_data = ImageMatcher.create_context_data(template_path, result)
+
+            if not hasattr(GlobalState, 'image_match_results'):
+                GlobalState.image_match_results = {}
+
+            GlobalState.image_match_results[macro_block.event_data] = context_data
+
+            if macro_block.macro_blocks:
+                if flat_blocks:
+                    nested_base_index = self._find_block_index_in_flat_list(macro_block, flat_blocks, base_index) + 1
+                else:
+                    nested_base_index = 0
+
+                # 중첩된 블록들 실행 (실패해도 다음 블록들은 계속 실행)
+                try:
+                    self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                except Exception:
+                    pass
+
+            return True
+        else:
+            # 이미지를 찾지 못해도 다음 블록들은 계속 실행
+            return True
+
+    def _execute_rgb_match_condition(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
+        """Execute RGB match condition."""
+        from core.screen import grab_rgb_at
+
+        if not macro_block.position or not macro_block.action:
+            return True
+
+        # 좌표 파싱
+        coords = macro_block.parse_position()
+        if not coords:
+            return True
+
+        x, y = coords
+        expected_rgb = macro_block.action
+
+        try:
+            # 화면에서 RGB 값 추출
+            actual_rgb = grab_rgb_at(x, y)
+            if actual_rgb is None:
                 return False
 
-            x, y = position
-            rgb = grab_rgb_at(x, y)
-            if not rgb:
-                return False
+            # RGB 값 비교
+            if isinstance(expected_rgb, str):
+                # "r,g,b" 형식의 문자열 파싱
+                expected_parts = expected_rgb.split(',')
+                if len(expected_parts) == 3:
+                    expected_r, expected_g, expected_b = map(int, expected_parts)
+                    actual_r, actual_g, actual_b = actual_rgb
 
-            # Parse expected color from action field
-            try:
-                expected_colors = macro_block.action.split(",")
-                if len(expected_colors) >= 3:
-                    expected_r = int(expected_colors[0].strip())
-                    expected_g = int(expected_colors[1].strip())
-                    expected_b = int(expected_colors[2].strip())
+                    # RGB 값이 일치하는지 확인
+                    if (expected_r == actual_r and
+                        expected_g == actual_g and
+                        expected_b == actual_b):
 
-                    # Allow some tolerance in color matching
-                    tolerance = 10
-                    return (abs(rgb[0] - expected_r) <= tolerance and
-                            abs(rgb[1] - expected_g) <= tolerance and
-                            abs(rgb[2] - expected_b) <= tolerance)
-            except (ValueError, AttributeError):
-                pass
+                        # 조건이 맞으면 중첩된 블록들 실행
+                        if macro_block.macro_blocks:
+                            if flat_blocks:
+                                nested_base_index = self._find_block_index_in_flat_list(macro_block, flat_blocks, base_index) + 1
+                            else:
+                                nested_base_index = 0
 
-        return False
+                            # 조건 내부 블록 실행 (실패해도 다음 블록들은 계속 실행)
+                            try:
+                                self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                            except Exception:
+                                pass
+
+                        return True
+
+            # 조건이 맞지 않아도 다음 블록들은 계속 실행
+            return True
+
+        except Exception:
+            return True
+
+    def _resolve_position_reference(self, position_str: str) -> tuple[Optional[int], Optional[int]]:
+        """상위좌표 참조를 해결하여 실제 좌표를 반환"""
+        from core.state import GlobalState
+
+        try:
+            # 새로운 형식: @parent
+            if position_str.strip() == "@parent":
+                return self._get_parent_image_coordinates()
+
+            # 기존 형식: "image_name.x, image_name.y"
+            parts = position_str.split(",")
+            if len(parts) != 2:
+                return None, None
+
+            x_ref = parts[0].strip()  # "image_name.x"
+            y_ref = parts[1].strip()  # "image_name.y"
+
+            # x 좌표 해결
+            if "." in x_ref:
+                ref_name, coord = x_ref.split(".", 1)
+                if coord == "x" and hasattr(GlobalState, 'image_match_results'):
+                    if ref_name in GlobalState.image_match_results:
+                        x = GlobalState.image_match_results[ref_name]["x"]
+                    else:
+                        return None, None
+                else:
+                    return None, None
+            else:
+                x = int(x_ref)
+
+            # y 좌표 해결
+            if "." in y_ref:
+                ref_name, coord = y_ref.split(".", 1)
+                if coord == "y" and hasattr(GlobalState, 'image_match_results'):
+                    if ref_name in GlobalState.image_match_results:
+                        y = GlobalState.image_match_results[ref_name]["y"]
+                    else:
+                        return None, None
+                else:
+                    return None, None
+            else:
+                y = int(y_ref)
+
+            return x, y
+
+        except (ValueError, AttributeError):
+            return None, None
+
+    def _get_parent_image_coordinates(self) -> tuple[Optional[int], Optional[int]]:
+        """현재 실행 중인 부모 이미지 매치 조건의 좌표를 반환"""
+        from core.state import GlobalState
+
+        # 현재 실행 중인 이미지 매치 결과에서 가장 최근의 좌표를 사용
+        if hasattr(GlobalState, 'image_match_results') and GlobalState.image_match_results:
+            # 가장 최근에 매치된 이미지의 좌표를 사용
+            for image_name, context_data in reversed(list(GlobalState.image_match_results.items())):
+                if "x" in context_data and "y" in context_data:
+                    return context_data["x"], context_data["y"]
+
+        return None, None
 
     def _find_block_index_in_flat_list(self, target_block: MacroBlock, flat_blocks: List, base_index: int = 0) -> int:
         """Find the index of a block in the flat list using block key for identification."""

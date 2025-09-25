@@ -8,6 +8,16 @@ class StyledList(tk.Text):
         kwargs.setdefault("undo", False)
         kwargs.setdefault("cursor", "arrow")
         kwargs.setdefault("height", 1)
+
+        # 이모지 지원을 위한 폰트 설정
+        try:
+            # Windows에서 이모지를 잘 표시하는 폰트들
+            emoji_font = ("Segoe UI Emoji", 9)
+            kwargs.setdefault("font", emoji_font)
+        except:
+            # 폰트 설정 실패시 기본 폰트 사용
+            pass
+
         super().__init__(master, **kwargs)
 
         self._split_cb = split_cb
