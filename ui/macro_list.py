@@ -13,12 +13,22 @@ class MacroListManager:
         self.parent = parent
         self.mark_dirty_callback = mark_dirty_callback
 
+        self.container_frame = tk.Frame(parent)
+
+        self.scrollbar = tk.Scrollbar(self.container_frame, orient=tk.VERTICAL, width=10)
+
         self.macro_listbox = StyledList(
-            parent,
+            self.container_frame,
             split_cb=self._split_raw_desc,
             join_cb=self._join_raw_desc,
             desc_color="#1a7f37",
+            yscrollcommand=self.scrollbar.set
         )
+
+        self.scrollbar.config(command=self.macro_listbox.yview)
+
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.macro_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.inline_edit = InlineEditHandler(
             self.macro_listbox, 
@@ -53,7 +63,7 @@ class MacroListManager:
         self.macro_listbox.config(takefocus=True)
 
     def pack(self, **kwargs):
-        self.macro_listbox.pack(**kwargs)
+        self.container_frame.pack(**kwargs)
 
     def insert_macro_block(self, macro_block: MacroBlock):
         """Insert a MacroBlock into the list."""

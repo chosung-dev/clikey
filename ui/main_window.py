@@ -334,21 +334,26 @@ class MacroUI:
         self.macro_list.insert_macro_block(exit_block)
 
     def delete_macro(self):
-        selected_blocks = self.macro_list.get_selected_macro_blocks()
-        if not selected_blocks:
+        selected_indices = self.macro_list.get_selected_indices()
+        if not selected_indices:
             return
+
+        # 삭제할 첫 번째 인덱스 저장
+        first_deleted_index = min(selected_indices)
 
         self.macro_list.delete_selected()
 
         # Update selection after deletion
         size = self.macro_list.size()
         if size > 0:
-            # Select the first available item
+            # 삭제된 위치에 있는 블록 선택, 마지막 블록이었다면 새로운 마지막 블록 선택
+            new_index = min(first_deleted_index, size - 1)
+
             self.macro_list.macro_listbox.selection_clear(0, tk.END)
-            self.macro_list.macro_listbox.selection_set(0)
-            self.macro_list.macro_listbox.activate(0)
-            self.macro_list.macro_listbox.see(0)
-            self.macro_list.selected_indices = [0]
+            self.macro_list.macro_listbox.selection_set(new_index)
+            self.macro_list.macro_listbox.activate(new_index)
+            self.macro_list.macro_listbox.see(new_index)
+            self.macro_list.selected_indices = [new_index]
 
     # ---------- 실행/중지 ----------
     def run_macros(self):
