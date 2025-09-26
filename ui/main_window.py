@@ -81,6 +81,7 @@ class MacroUI:
         edit_menu.add_command(label="잘라내기", accelerator="Ctrl+X", command=self._on_cut)
         edit_menu.add_command(label="붙여넣기", accelerator="Ctrl+V", command=self._on_paste)
         edit_menu.add_separator()
+        edit_menu.add_command(label="설명 추가", accelerator="/", command=self.add_description)
         edit_menu.add_command(label="삭제", accelerator="Delete", command=self.delete_macro)
         menubar.add_cascade(label="편집", menu=edit_menu)
 
@@ -142,6 +143,7 @@ class MacroUI:
         self.root.bind("<Control-x>", self._on_cut)
         self.root.bind("<Control-v>", self._on_paste)
         self.root.bind("<Control-z>", self._on_undo)
+        self.root.bind("<KeyPress-slash>", self._on_add_description)
 
     def _register_hotkeys_if_available(self):
         register_hotkeys(self.root, self)
@@ -412,6 +414,16 @@ class MacroUI:
     def _on_undo(self, event=None):
         if self.macro_list:
             self.macro_list._on_undo(event)
+        return "break"
+
+    def add_description(self):
+        """선택된 블록에 설명을 추가"""
+        if self.macro_list:
+            # InlineEditHandler의 키 이벤트 메서드를 직접 호출
+            self.macro_list.inline_edit._begin_desc_inline_edit_from_key(None)
+
+    def _on_add_description(self, event=None):
+        self.add_description()
         return "break"
 
 

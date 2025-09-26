@@ -16,7 +16,7 @@ class InlineEditHandler:
         self._setup_bindings()
 
     def _setup_bindings(self):
-        self.listbox.bind("<Double-Button-1>", self._begin_desc_inline_edit, add="+")
+        self.listbox.bind("<KeyPress-slash>", self._begin_desc_inline_edit_from_key, add="+")
 
     def _begin_desc_inline_edit(self, event):
         if self._inline_edit_entry is not None:
@@ -35,6 +35,45 @@ class InlineEditHandler:
             _, y, _, h = bbox_last
             if event.y > y + h:
                 return "break"
+        x, y, w, h = bbox
+
+        line = lb.get(idx)
+        raw, cur_desc = self._split_raw_desc(line)
+
+        self._inline_edit_idx = idx
+        self._inline_edit_raw = raw
+
+        ent = tk.Entry(lb)
+        ent.insert(0, cur_desc)
+        ent.place(x=0, y=max(0, y - 2), width=max(w + 16, lb.winfo_width() - 8), height=h + 6)
+        ent.focus_set()
+        self._inline_edit_entry = ent
+
+        ent.bind("<Return>", self._inline_edit_commit)
+        ent.bind("<Escape>", lambda e: (self._inline_edit_cleanup(), "break"))
+        ent.bind("<FocusOut>", self._inline_edit_commit)
+
+        return "break"
+
+    def _begin_desc_inline_edit_from_key(self, event):
+        """키보드 '/'를 눌렀을 때 선택된 항목의 설명을 편집"""
+        if self._inline_edit_entry is not None:
+            return "break"
+
+        lb = self.listbox
+        selection = lb.curselection()
+        if not selection:
+            return "break"
+
+        idx = selection[0]
+        size = lb.size()
+        if size == 0 or idx < 0 or idx >= size:
+            return "break"
+
+        bbox = lb.bbox(idx)
+        if not bbox:
+            return "break"
+
         x, y, w, h = bbox
 
         line = lb.get(idx)
@@ -88,6 +127,8 @@ class InlineEditHandler:
             lb.selection_set(idx)
             lb.activate(idx)
             lb.see(idx)
+            # 편집 완료 후 리스트박스에 포커스 다시 설정
+            lb.focus_set()
         finally:
             self._inline_edit_cleanup()
         return "break"

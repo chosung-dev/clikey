@@ -58,7 +58,11 @@ class MacroListManager:
         
         # Bind undo key
         self.macro_listbox.bind('<Control-z>', self._on_undo)
-        
+
+        # Bind arrow keys for navigation
+        self.macro_listbox.bind('<Up>', self._on_up_arrow)
+        self.macro_listbox.bind('<Down>', self._on_down_arrow)
+
         # Make listbox focusable
         self.macro_listbox.config(takefocus=True)
 
@@ -460,6 +464,44 @@ class MacroListManager:
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
             
+        return "break"
+
+    def _on_up_arrow(self, event):
+        """위쪽 방향키로 선택 이동"""
+        if self.inline_edit.is_editing():
+            return  # 편집 중이면 무시
+
+        if not self.selected_indices:
+            # 선택된 항목이 없으면 마지막 항목 선택
+            if self.flat_blocks:
+                self.selected_indices = [len(self.flat_blocks) - 1]
+        else:
+            current_idx = self.selected_indices[0]
+            if current_idx > 0:
+                self.selected_indices = [current_idx - 1]
+
+        self._update_selection_display()
+        if self.selected_indices:
+            self.macro_listbox.see(self.selected_indices[0])
+        return "break"
+
+    def _on_down_arrow(self, event):
+        """아래쪽 방향키로 선택 이동"""
+        if self.inline_edit.is_editing():
+            return  # 편집 중이면 무시
+
+        if not self.selected_indices:
+            # 선택된 항목이 없으면 첫 번째 항목 선택
+            if self.flat_blocks:
+                self.selected_indices = [0]
+        else:
+            current_idx = self.selected_indices[0]
+            if current_idx < len(self.flat_blocks) - 1:
+                self.selected_indices = [current_idx + 1]
+
+        self._update_selection_display()
+        if self.selected_indices:
+            self.macro_listbox.see(self.selected_indices[0])
         return "break"
 
 
