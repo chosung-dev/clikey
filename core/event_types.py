@@ -12,3 +12,4 @@ class EventType(Enum):
 class ConditionType(Enum):
     RGB_MATCH = "rgb_match"
     IMAGE_MATCH = "image_match"
+    COORDINATE_CONDITION = "coordinate_condition"

@@ -107,16 +107,17 @@ class MacroUI:
         )
         self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_macro_block)
         self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_macro_block)
+        self.condition_dialog.set_macro_list(self.macro_list)
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
         tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
         tk.Button(right_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
         tk.Button(right_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
         tk.Button(right_frame, text="이미지조건", width=18, command=self.add_image_match_condition).pack(pady=6)
+        tk.Button(right_frame, text="좌표조건", width=18, command=self.add_coordinate_condition).pack(pady=6)
         tk.Button(right_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=6)
-        tk.Button(right_frame, text="지우기", width=18, command=self.delete_macro).pack(pady=16)
 
         self.run_btn = tk.Button(right_frame, text="▶ 실행하기", width=18, command=self.run_macros)
-        self.run_btn.pack(pady=6)
+        self.run_btn.pack(pady=(16, 6))
         self.stop_btn = tk.Button(right_frame, text="■ 중지", width=18, state=tk.DISABLED, command=self.stop_execution)
         self.stop_btn.pack(pady=6)
 
@@ -312,6 +313,9 @@ class MacroUI:
 
     def add_image_match_condition(self):
         self.condition_dialog.add_image_match_condition()
+
+    def add_coordinate_condition(self):
+        self.condition_dialog.add_coordinate_condition()
 
     def add_stop_macro(self):
         from core.macro_factory import MacroFactory

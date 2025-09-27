@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog
 import pyautogui
-from typing import Callable
+from typing import Callable, Optional, Tuple
 import os
 import tempfile
 from PIL import Image, ImageTk
@@ -17,11 +17,66 @@ class ConditionDialog:
         self.parent = parent
         self.insert_callback = insert_callback
         self.magnifier = None
+        self.macro_list = None  # 매크로 리스트에 대한 참조를 저장
+
+    def set_macro_list(self, macro_list):
+        """매크로 리스트 참조를 설정"""
+        self.macro_list = macro_list
+
+    def find_parent_coordinate_condition(self) -> Optional[Tuple[int, int]]:
+        """Find the nearest parent coordinate condition and return its coordinates."""
+        try:
+            from core.event_types import ConditionType
+
+            if not self.macro_list:
+                return None
+
+            if not hasattr(self.macro_list, 'get_selected_indices'):
+                return None
+
+            selected_indices = self.macro_list.get_selected_indices()
+            if not selected_indices:
+                return None
+
+            current_index = selected_indices[0]
+
+            # flat_blocks 속성 사용
+            if not hasattr(self.macro_list, 'flat_blocks'):
+                return None
+
+            flat_blocks = self.macro_list.flat_blocks
+
+            # 먼저 현재 선택된 블록이 좌표 조건인지 확인
+            if current_index < len(flat_blocks):
+                current_block, current_depth = flat_blocks[current_index]
+                if (hasattr(current_block, 'event_type') and current_block.event_type.value == "if" and
+                    hasattr(current_block, 'condition_type') and
+                    current_block.condition_type == ConditionType.COORDINATE_CONDITION):
+                    coords = current_block.parse_position()
+                    if coords:
+                        return coords
+
+            # 현재 선택된 블록이 좌표 조건이 아니면, 역방향으로 검색
+            for i in range(current_index - 1, -1, -1):
+                if i < len(flat_blocks):
+                    block, depth = flat_blocks[i]
+                    if (hasattr(block, 'event_type') and block.event_type.value == "if" and
+                        hasattr(block, 'condition_type') and
+                        block.condition_type == ConditionType.COORDINATE_CONDITION):
+                        coords = block.parse_position()
+                        if coords:
+                            return coords
+
+            return None
+
+        except Exception as e:
+            print(f"Error finding parent coordinate condition: {e}")
+            return None
 
     def add_image_condition(self):
         win = tk.Toplevel(self.parent)
         win.title("색상 조건")
-        win.geometry("380x280+560+320")
+        win.geometry("380x320+560+320")
         win.resizable(False, False)
         win.transient(self.parent)
         win.lift()
@@ -40,19 +95,22 @@ class ConditionDialog:
         tk.Label(frm, textvariable=rgb_var).pack()
 
         captured = {"x": None, "y": None, "r": None, "g": None, "b": None}
+        parent_coords = self.find_parent_coordinate_condition()
+        is_parent_mode = {"enabled": False}
 
         # Magnifier will be initialized when needed (lazy loading)
         self.magnifier = None
 
         def tick():
-            x, y = pyautogui.position()
-            pos_var.set(f"좌표: ({x}, {y})")
-            rgb = grab_rgb_at(x, y)
-            if rgb is None:
-                rgb_var.set("RGB: (---, ---, ---)")
-            else:
-                r, g, b = rgb
-                rgb_var.set(f"RGB: ({r}, {g}, {b})")
+            if not is_parent_mode["enabled"]:
+                x, y = pyautogui.position()
+                pos_var.set(f"좌표: ({x}, {y})")
+                rgb = grab_rgb_at(x, y)
+                if rgb is None:
+                    rgb_var.set("RGB: (---, ---, ---)")
+                else:
+                    r, g, b = rgb
+                    rgb_var.set(f"RGB: ({r}, {g}, {b})")
             win.after(200, tick)
 
         tick()
@@ -66,6 +124,7 @@ class ConditionDialog:
             r, g, b = rgb
             captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
             msg.config(text=f"캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
+            is_parent_mode["enabled"] = False
 
         def show_magnifier():
             """Show magnifier for precise color picking."""
@@ -81,31 +140,60 @@ class ConditionDialog:
                 r, g, b = rgb
                 captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
                 msg.config(text=f"캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
+                is_parent_mode["enabled"] = False
                 self.magnifier.hide()
 
             self.magnifier.show(on_magnifier_click)
 
+        def capture_parent_coordinates():
+            """상위좌표 버튼 클릭 시 - 상위 좌표 조건의 좌표로 고정"""
+            if parent_coords:
+                x, y = parent_coords
+                captured.update({"x": x, "y": y})
+                pos_var.set(f"좌표: ({x}, {y}) [상위좌표 고정]")
+                msg.config(text=f"상위좌표로 고정됨: ({x},{y})\n고정 좌표 색 캡처를 눌러 색상을 캡처하세요.")
+                is_parent_mode["enabled"] = True
+            else:
+                messagebox.showwarning("오류", "상위 좌표 조건을 찾을 수 없습니다.")
+
         def capture_color():
+            """고정 좌표 색 캡처 - 캡처된 좌표에서 색상만 다시 캡처"""
             x = captured["x"]
             y = captured["y"]
             if x is None or y is None:
-                messagebox.showwarning("오류", "좌표를 먼저 캡처 해 주세요")
+                messagebox.showwarning("오류", "먼저 좌표를 캡처하거나 상위좌표를 선택해주세요.")
                 return
             rgb = grab_rgb_at(x, y)
             if rgb is None:
                 messagebox.showwarning("오류", "화면 캡처에 실패했습니다.")
                 return
             r, g, b = rgb
-            captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
-            msg.config(text=f"캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
+            captured.update({"r": r, "g": g, "b": b})
+            rgb_var.set(f"RGB: ({r}, {g}, {b})")
+            if is_parent_mode["enabled"]:
+                msg.config(text=f"상위좌표 색상 캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
+            else:
+                msg.config(text=f"색상 재캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
 
         def apply_block():
-            if captured["x"] is None:
-                messagebox.showwarning("안내", "먼저 좌표/색을 캡처하세요.")
+            """추가 버튼 - 상위좌표 모드인지에 따라 다른 조건 생성"""
+            if captured["r"] is None:
+                messagebox.showwarning("안내", "먼저 색상을 캡처하세요.")
                 return
-            x, y = captured['x'], captured['y']
+
             expected_color = f"{captured['r']},{captured['g']},{captured['b']}"
-            macro_block = MacroFactory.create_rgb_match_block(x, y, expected_color)
+
+            # 상위좌표 모드인 경우 @parent 참조 조건 생성
+            if is_parent_mode["enabled"]:
+                macro_block = MacroFactory.create_rgb_match_with_parent_block(expected_color)
+            else:
+                # 일반 모드인 경우 좌표와 색상 모두 필요
+                if captured["x"] is None:
+                    messagebox.showwarning("안내", "먼저 좌표와 색상을 캡처하세요.")
+                    return
+                x, y = captured['x'], captured['y']
+                macro_block = MacroFactory.create_rgb_match_block(x, y, expected_color)
+
             self.insert_callback(macro_block)
             try:
                 win.grab_release()
@@ -133,18 +221,26 @@ class ConditionDialog:
             on_close()
             return "break"
 
-        magnifier_frame = tk.Frame(frm)
-        magnifier_frame.pack(pady=4)
-        tk.Button(magnifier_frame, text="정밀 캡처", command=show_magnifier, width=20).pack()
+        # 1. 정밀 캡처
+        tk.Button(frm, text="정밀 캡처", command=show_magnifier, width=30).pack(pady=2)
 
+        # 2. 좌표/색 캡처, 상위좌표
         capture_frame = tk.Frame(frm)
-        capture_frame.pack(pady=4)
-        tk.Button(capture_frame, text="좌표/색 캡처 (Enter)", command=capture).grid(row=0, column=0, padx=4)
-        tk.Button(capture_frame, text="고정 좌표 색 캡처", command=capture_color).grid(row=0, column=1, padx=4)
+        capture_frame.pack(pady=2)
+        tk.Button(capture_frame, text="좌표/색 캡처 (Enter)", command=capture, width=14).grid(row=0, column=0, padx=2)
+        parent_btn = tk.Button(capture_frame, text="상위좌표", command=capture_parent_coordinates, width=14)
+        parent_btn.grid(row=0, column=1, padx=2)
+        if not parent_coords:
+            parent_btn.config(state=tk.DISABLED)
 
-        tk.Button(frm, text="추가 (Ctrl+Enter)", command=apply_block, width=20).pack(pady=4)
+        # 3. 고정 좌표 색 캡처
+        tk.Button(frm, text="고정 좌표 색 캡처", command=capture_color, width=30).pack(pady=2)
 
-        tk.Button(frm, text="취소 (Esc)", command=on_close, width=20).pack(pady=4)
+        # 4. 추가
+        tk.Button(frm, text="추가 (Ctrl+Enter)", command=apply_block, width=30).pack(pady=2)
+
+        # 5. 취소
+        tk.Button(frm, text="취소 (Esc)", command=on_close, width=30).pack(pady=2)
 
         win.bind("<Return>", lambda e: capture())
         win.bind("<Control-Return>", lambda e: apply_block())
@@ -295,3 +391,69 @@ class ConditionDialog:
         except Exception as e:
             preview_label.configure(image="", text=f"미리보기 오류:\n{str(e)}")
             preview_label.image = None
+
+    def add_coordinate_condition(self):
+        """Add coordinate condition dialog."""
+        win = tk.Toplevel(self.parent)
+        win.title("좌표 조건")
+        win.geometry("380x200+560+320")
+        win.resizable(False, False)
+        win.transient(self.parent)
+        win.lift()
+        win.grab_set()
+        win.focus_force()
+
+        frm = tk.Frame(win, padx=10, pady=10)
+        frm.pack(fill="both", expand=True)
+
+        msg = tk.Label(frm, text="커서를 원하는 위치로 옮긴 뒤\n[좌표 캡처] 또는 Enter 키를 누르세요.", justify="center")
+        msg.pack(pady=4)
+
+        pos_var = tk.StringVar(value="좌표: (---, ---)")
+        tk.Label(frm, textvariable=pos_var).pack()
+
+        captured = {"x": None, "y": None}
+
+        def tick():
+            x, y = pyautogui.position()
+            pos_var.set(f"좌표: ({x}, {y})")
+            win.after(200, tick)
+
+        tick()
+
+        def capture():
+            x, y = pyautogui.position()
+            captured.update({"x": x, "y": y})
+            msg.config(text=f"캡처됨: ({x},{y})")
+
+        def apply_block():
+            if captured["x"] is None:
+                messagebox.showwarning("안내", "먼저 좌표를 캡처하세요.")
+                return
+            x, y = captured['x'], captured['y']
+            macro_block = MacroFactory.create_coordinate_condition_block(x, y)
+            self.insert_callback(macro_block)
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+
+        def on_close():
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+
+        capture_frame = tk.Frame(frm)
+        capture_frame.pack(pady=4)
+        tk.Button(capture_frame, text="좌표 캡처 (Enter)", command=capture, width=20).pack()
+
+        tk.Button(frm, text="추가 (Ctrl+Enter)", command=apply_block, width=20).pack(pady=4)
+
+        tk.Button(frm, text="취소 (Esc)", command=on_close, width=20).pack(pady=4)
+
+        win.bind("<Return>", lambda e: capture())
+        win.bind("<Control-Return>", lambda e: apply_block())
+        win.bind("<Escape>", lambda e: on_close())

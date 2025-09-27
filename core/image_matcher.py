@@ -9,7 +9,7 @@ import numpy as np
 
 class ImageMatcher:
     @staticmethod
-    def find_image_on_screen(template_path: str, threshold: float = 0.8) -> Optional[Tuple[int, int]]:
+    def find_image_on_screen(template_path: str, threshold: float = 0.9) -> Optional[Tuple[int, int]]:
         """
         화면에서 템플릿 이미지를 찾아 중앙 좌표를 반환
 

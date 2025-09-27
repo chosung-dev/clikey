@@ -4,10 +4,12 @@ import time
 from typing import List, Optional, Callable
 
 from core.macro_block import MacroBlock
-from core.event_types import EventType
+from core.event_types import EventType, ConditionType
 from core.mouse import mouse_move_click, mouse_move_only, mouse_down_at_current, mouse_up_at_current
 import keyboard
 from core.screen import grab_rgb_at
+from core.state import GlobalState
+from core.image_matcher import ImageMatcher
 
 
 class MacroExecutor:
@@ -198,21 +200,18 @@ class MacroExecutor:
 
     def _execute_condition(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
         """Execute conditional block based on condition type."""
-        from core.event_types import ConditionType
-
         if macro_block.condition_type == ConditionType.IMAGE_MATCH:
             return self._execute_image_match_condition(macro_block, flat_blocks, base_index)
         elif macro_block.condition_type == ConditionType.RGB_MATCH:
             return self._execute_rgb_match_condition(macro_block, flat_blocks, base_index)
+        elif macro_block.condition_type == ConditionType.COORDINATE_CONDITION:
+            return self._execute_coordinate_condition(macro_block, flat_blocks, base_index)
         else:
             # 기존 IF 조건 (RGB 체크) - 하위 호환성을 위해
             return self._execute_if(macro_block, flat_blocks, base_index)
 
     def _execute_image_match_condition(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
         """Execute image match condition."""
-        from core.image_matcher import ImageMatcher
-        from core.state import GlobalState
-
         if not macro_block.action:  # action contains the image path
             return True
 
@@ -247,24 +246,28 @@ class MacroExecutor:
 
     def _execute_rgb_match_condition(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
         """Execute RGB match condition."""
-        from core.screen import grab_rgb_at
-
-        if not macro_block.position or not macro_block.action:
+        if not macro_block.action:
             return True
 
-        # 좌표 파싱
-        coords = macro_block.parse_position()
-        if not coords:
-            return True
-
-        x, y = coords
         expected_rgb = macro_block.action
 
         try:
-            # 화면에서 RGB 값 추출
-            actual_rgb = grab_rgb_at(x, y)
-            if actual_rgb is None:
-                return False
+            # 상위 좌표 참조인지 확인
+            if macro_block.position and macro_block.position.strip() == "@parent":
+                # 상위 좌표 조건에서 캐시된 RGB 값 사용
+                if hasattr(GlobalState, 'current_coordinate_rgb') and GlobalState.current_coordinate_rgb:
+                    actual_rgb = GlobalState.current_coordinate_rgb
+                else:
+                    return True  # 상위 좌표 RGB가 없으면 조건 건너뛰기
+            else:
+                # 일반적인 좌표에서 RGB 값 추출
+                coords = macro_block.parse_position()
+                if not coords:
+                    return True
+                x, y = coords
+                actual_rgb = grab_rgb_at(x, y)
+                if actual_rgb is None:
+                    return True
 
             # RGB 값 비교
             if isinstance(expected_rgb, str):
@@ -300,10 +303,50 @@ class MacroExecutor:
         except Exception:
             return True
 
+    def _execute_coordinate_condition(self, macro_block: MacroBlock, flat_blocks: Optional[List] = None, base_index: int = 0) -> bool:
+        """Execute coordinate condition - captures RGB at coordinates and stores for child conditions."""
+        if not macro_block.position:
+            return True
+
+        # 좌표 파싱
+        coords = macro_block.parse_position()
+        if not coords:
+            return True
+
+        x, y = coords
+
+        try:
+            # 지정된 좌표에서 RGB 값 추출
+            actual_rgb = grab_rgb_at(x, y)
+            if actual_rgb is None:
+                return True
+
+            # RGB 값을 글로벌 상태에 저장 (하위 색상 조건들이 참조할 수 있도록)
+            GlobalState.current_coordinate_rgb = actual_rgb
+
+            # 하위 조건 블록들 실행
+            if macro_block.macro_blocks:
+                if flat_blocks:
+                    nested_base_index = self._find_block_index_in_flat_list(macro_block, flat_blocks, base_index) + 1
+                else:
+                    nested_base_index = 0
+
+                # 하위 조건 블록들 실행
+                try:
+                    self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                except Exception:
+                    pass
+
+            # RGB 캐시 정리
+            GlobalState.current_coordinate_rgb = None
+
+            return True
+
+        except Exception:
+            return True
+
     def _resolve_position_reference(self, position_str: str) -> tuple[Optional[int], Optional[int]]:
         """상위좌표 참조를 해결하여 실제 좌표를 반환"""
-        from core.state import GlobalState
-
         try:
             # 새로운 형식: @parent
             if position_str.strip() == "@parent":
@@ -350,8 +393,6 @@ class MacroExecutor:
 
     def _get_parent_image_coordinates(self) -> tuple[Optional[int], Optional[int]]:
         """현재 실행 중인 부모 이미지 매치 조건의 좌표를 반환"""
-        from core.state import GlobalState
-
         # 현재 실행 중인 이미지 매치 결과에서 가장 최근의 좌표를 사용
         if hasattr(GlobalState, 'image_match_results') and GlobalState.image_match_results:
             # 가장 최근에 매치된 이미지의 좌표를 사용

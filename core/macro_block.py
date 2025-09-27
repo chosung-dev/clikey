@@ -92,9 +92,14 @@ class MacroBlock:
             return f"⏱️ 대기 {self.action}초"
         elif self.event_type == EventType.IF:
             if self.condition_type == ConditionType.RGB_MATCH:
-                return f"[조건] 색상 매치 @{self.position}"
+                position_display = self.position
+                if self.position and self.position.strip() == "@parent":
+                    position_display = "상위좌표"
+                return f"[조건] 색상 매치 {position_display}"
             elif self.condition_type == ConditionType.IMAGE_MATCH:
                 return f"[조건] 이미지 매치 @{self.event_data}"
+            elif self.condition_type == ConditionType.COORDINATE_CONDITION:
+                return f"[조건] 좌표 조건 @{self.position}"
             else:
                 return f"[조건] {self.event_data} @{self.position}"
         elif self.event_type == EventType.EXIT:

@@ -74,3 +74,29 @@ class MacroFactory:
             description=description,
             macro_blocks=[]  # 일치할 경우 실행할 블록들을 위한 컨테이너
         )
+
+    @staticmethod
+    def create_coordinate_condition_block(x: int, y: int, description: str = "") -> MacroBlock:
+        """Create a coordinate condition block that captures RGB at given coordinates."""
+        return MacroBlock(
+            event_type=EventType.IF,
+            event_data="coordinate_check",
+            action=None,  # RGB value will be captured at runtime
+            position=f"{x},{y}",
+            condition_type=ConditionType.COORDINATE_CONDITION,
+            description=description,
+            macro_blocks=[]  # Container for child condition blocks
+        )
+
+    @staticmethod
+    def create_rgb_match_with_parent_block(expected_rgb: str, description: str = "") -> MacroBlock:
+        """Create an RGB match block that uses parent coordinate."""
+        return MacroBlock(
+            event_type=EventType.IF,
+            event_data="rgb_check",
+            action=expected_rgb,
+            position="@parent",
+            condition_type=ConditionType.RGB_MATCH,
+            description=description,
+            macro_blocks=[]  # 일치할 경우 실행할 블록들을 위한 컨테이너
+        )
