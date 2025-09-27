@@ -9,9 +9,10 @@ from core.state import GlobalState
 
 
 class MacroListManager:
-    def __init__(self, parent: tk.Widget, mark_dirty_callback: Optional[Callable[[bool], None]] = None):
+    def __init__(self, parent: tk.Widget, mark_dirty_callback: Optional[Callable[[bool], None]] = None, save_callback: Optional[Callable[[], None]] = None):
         self.parent = parent
         self.mark_dirty_callback = mark_dirty_callback
+        self.save_callback = save_callback
 
         self.container_frame = tk.Frame(parent)
 
@@ -39,6 +40,8 @@ class MacroListManager:
         self.selected_indices: List[int] = []
         self.flat_blocks: List[Tuple[MacroBlock, int]] = []  # (block, depth) pairs
         self.clipboard: List[MacroBlock] = []  # Clipboard for copy/cut/paste
+        self.last_selected_index: Optional[int] = None  # For range selection
+        self.range_anchor: Optional[int] = None  # Fixed anchor point for range selection
         
         # Undo functionality - store up to 5 states
         self.undo_history: List[List[MacroBlock]] = []
@@ -46,6 +49,7 @@ class MacroListManager:
 
         # Bind click events for selection
         self.macro_listbox.bind('<Button-1>', self._on_click)
+        self.macro_listbox.bind('<Shift-Button-1>', self._on_shift_click)
         
         # Bind delete key for deletion
         self.macro_listbox.bind('<Delete>', self._on_delete_key)
@@ -59,9 +63,17 @@ class MacroListManager:
         # Bind undo key
         self.macro_listbox.bind('<Control-z>', self._on_undo)
 
+        # Bind save key
+        self.macro_listbox.bind('<Control-s>', self._on_save)
+
+        # Bind select all key
+        self.macro_listbox.bind('<Control-a>', self._on_select_all)
+
         # Bind arrow keys for navigation
         self.macro_listbox.bind('<Up>', self._on_up_arrow)
         self.macro_listbox.bind('<Down>', self._on_down_arrow)
+        self.macro_listbox.bind('<Shift-Up>', self._on_shift_up_arrow)
+        self.macro_listbox.bind('<Shift-Down>', self._on_shift_down_arrow)
 
         # Make listbox focusable
         self.macro_listbox.config(takefocus=True)
@@ -71,36 +83,27 @@ class MacroListManager:
 
     def insert_macro_block(self, macro_block: MacroBlock):
         """Insert a MacroBlock into the list."""
-        # Save state for undo before making changes
         self._save_state_for_undo()
-        
+
         sel = self.get_selected_indices()
+        is_image_match_copy = self._is_image_match_block(macro_block)
 
         if sel:
             selected_idx = sel[0]
             selected_block, selected_depth = self.flat_blocks[selected_idx]
             if selected_block.event_type == EventType.IF:
-                # 조건 내부에 추가: 이미지 매치 조건이 아니면 상위좌표 참조 정리
-                is_image_match_copy = (macro_block.event_type == EventType.IF and
-                                     hasattr(macro_block, 'condition_type') and
-                                     macro_block.condition_type and
-                                     macro_block.condition_type.value == 'image_match')
                 self._clear_reference_positions_if_needed(macro_block, selected_block, is_image_match_copy)
                 selected_block.macro_blocks.append(macro_block)
             else:
                 self._insert_after_selected_block(macro_block, selected_idx, selected_block, selected_depth)
         else:
-            # No selection, add to end: 루트 레벨이므로 상위좌표 참조 정리
-            is_image_match_copy = (macro_block.event_type == EventType.IF and
-                                 hasattr(macro_block, 'condition_type') and
-                                 macro_block.condition_type and
-                                 macro_block.condition_type.value == 'image_match')
             self._clear_reference_positions_if_needed(macro_block, None, is_image_match_copy)
             self.macro_blocks.append(macro_block)
 
         self._rebuild_flat_list()
         self._refresh_display()
         self._update_global_state()
+        self._select_newly_added_block(macro_block)
 
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
@@ -108,6 +111,13 @@ class MacroListManager:
     def get_macro_blocks(self) -> List[MacroBlock]:
         """Get all macro blocks."""
         return self.macro_blocks.copy()
+
+    def _is_image_match_block(self, block: MacroBlock) -> bool:
+        """Check if block is an image match condition."""
+        return (block.event_type == EventType.IF and
+                hasattr(block, 'condition_type') and
+                block.condition_type and
+                block.condition_type.value == 'image_match')
 
     def clear(self):
         self.macro_listbox.delete(0, tk.END)
@@ -137,17 +147,52 @@ class MacroListManager:
     def _on_click(self, event):
         index = self.macro_listbox.nearest(event.y)
 
-        self.selected_indices = [] if index == -1 else [index]
+        if index != -1:
+            self.selected_indices = [index]
+            self.last_selected_index = index
+            self.range_anchor = index  # Reset anchor on single click
+        else:
+            self.selected_indices = []
+            self.last_selected_index = None
+            self.range_anchor = None
+
         self._update_selection_display()
-        
+
+        # Give focus to listbox for keyboard events
+        self.macro_listbox.focus_set()
+
+    def _on_shift_click(self, event):
+        """Handle Shift+click for range selection."""
+        index = self.macro_listbox.nearest(event.y)
+
+        if index == -1:
+            return
+
+        if self.last_selected_index is None:
+            # No previous selection, treat as normal click
+            self.selected_indices = [index]
+            self.last_selected_index = index
+        else:
+            # Select range from last selected to current
+            start = min(self.last_selected_index, index)
+            end = max(self.last_selected_index, index)
+            self.selected_indices = list(range(start, end + 1))
+
+        self._update_selection_display()
+
         # Give focus to listbox for keyboard events
         self.macro_listbox.focus_set()
 
     def _update_selection_display(self):
         """Update the visual display of selected items."""
-        self.macro_listbox.selection_clear(0, tk.END)
-        for index in self.selected_indices:
-            self.macro_listbox.selection_set(index)
+        if hasattr(self.macro_listbox, 'selection_set_multiple'):
+            # Use the new multiple selection method
+            self.macro_listbox.selection_set_multiple(self.selected_indices)
+        else:
+            # Fallback to the old method
+            self.macro_listbox.selection_clear(0, tk.END)
+            for index in self.selected_indices:
+                self.macro_listbox.selection_set(index)
 
     def get_selected_indices(self) -> List[int]:
         """Get the indices of selected macro blocks."""
@@ -170,6 +215,9 @@ class MacroListManager:
         # Save state for undo before making changes
         self._save_state_for_undo()
 
+        # Remember the first selected index for positioning after deletion
+        first_selected = min(self.selected_indices)
+
         # Collect blocks to delete
         blocks_to_delete = []
         for index in self.selected_indices:
@@ -181,10 +229,19 @@ class MacroListManager:
         for block in blocks_to_delete:
             self._remove_block_from_tree(block)
 
+        # Clear selection and rebuild
         self.selected_indices.clear()
         self._rebuild_flat_list()
         self._refresh_display()
         self._update_global_state()
+
+        # Set selection to the item at the position where the first deleted item was
+        if self.flat_blocks:
+            new_index = min(first_selected, len(self.flat_blocks) - 1)
+            self.selected_indices = [new_index]
+            self.last_selected_index = new_index
+            self._update_selection_display()
+            self.macro_listbox.see(new_index)
 
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
@@ -262,36 +319,24 @@ class MacroListManager:
         return items
 
     def _insert_after_selected_block(self, macro_block: MacroBlock, selected_idx: int, selected_block: MacroBlock, selected_depth: int):
-        """Insert a macro block after the selected block at the correct position."""
-        # 이미지 매치 조건 블록인지 확인
-        is_image_match_copy = (macro_block.event_type == EventType.IF and
-                             hasattr(macro_block, 'condition_type') and
-                             macro_block.condition_type and
-                             macro_block.condition_type.value == 'image_match')
+        """Insert a macro block after the selected block."""
+        is_image_match_copy = self._is_image_match_block(macro_block)
 
         if selected_depth == 0:
-            # Selected block is at root level: 루트 레벨이므로 상위좌표 참조 정리
             root_idx = self.macro_blocks.index(selected_block)
             self._clear_reference_positions_if_needed(macro_block, None, is_image_match_copy)
             self.macro_blocks.insert(root_idx + 1, macro_block)
-
         else:
-            # Selected block is nested, find its parent and insert after the selected block
             parent_block = self._find_parent_block(selected_idx, selected_block)
             if parent_block and hasattr(parent_block, 'macro_blocks'):
-                # Find the index of selected_block in parent's macro_blocks
                 if selected_block in parent_block.macro_blocks:
                     child_idx = parent_block.macro_blocks.index(selected_block)
-                    # 부모가 이미지 매치 조건이 아니면 상위좌표 참조 정리
                     self._clear_reference_positions_if_needed(macro_block, parent_block, is_image_match_copy)
                     parent_block.macro_blocks.insert(child_idx + 1, macro_block)
                 else:
-                    # Fallback: add to end of parent's macro_blocks
                     self._clear_reference_positions_if_needed(macro_block, parent_block, is_image_match_copy)
                     parent_block.macro_blocks.append(macro_block)
-
             else:
-                # Fallback: add to root level: 루트 레벨이므로 상위좌표 참조 정리
                 self._clear_reference_positions_if_needed(macro_block, None, is_image_match_copy)
                 self.macro_blocks.append(macro_block)
 
@@ -319,111 +364,127 @@ class MacroListManager:
 
     def _on_delete_key(self, event):
         """Handle delete key press to delete selected items."""
-        # Don't delete if inline editing is active
         if self.inline_edit.is_editing():
             return
-            
-        selected_blocks = self.get_selected_macro_blocks()
-        if not selected_blocks:
-            return
-            
-        # Delete the selected items
-        self.delete_selected()
-        self.macro_listbox.selection_clear(0, tk.END)
 
+        if self.get_selected_macro_blocks():
+            self.delete_selected()
         return "break"
 
     def _on_copy(self, event):
         """Handle Ctrl+C to copy selected items."""
-        # Don't copy if inline editing is active
         if self.inline_edit.is_editing():
             return
-            
+
         selected_blocks = self.get_selected_macro_blocks()
-        if not selected_blocks:
-            return
-            
-        # Copy selected blocks to clipboard
-        self.clipboard = [block.copy() for block in selected_blocks]
+        if selected_blocks:
+            self.clipboard = [block.copy() for block in selected_blocks]
         return "break"
 
     def _on_cut(self, event):
         """Handle Ctrl+X to cut selected items."""
-        # Don't cut if inline editing is active
         if self.inline_edit.is_editing():
             return
-            
+
         selected_blocks = self.get_selected_macro_blocks()
-        if not selected_blocks:
-            return
-            
-        # Save state for undo before making changes
-        self._save_state_for_undo()
-            
-        # Copy to clipboard first
-        self.clipboard = [block.copy() for block in selected_blocks]
-        
-        # Then delete the selected items
-        self.delete_selected()
-        self.macro_listbox.selection_clear(0, tk.END)
-        
-        # Mark as dirty
-        if self.mark_dirty_callback:
-            self.mark_dirty_callback(True)
-            
+        if selected_blocks:
+            self._save_state_for_undo()
+            self.clipboard = [block.copy() for block in selected_blocks]
+            self.delete_selected()
         return "break"
 
     def _on_paste(self, event):
         """Handle Ctrl+V to paste items from clipboard."""
-        # Don't paste if inline editing is active
-        if self.inline_edit.is_editing():
+        if self.inline_edit.is_editing() or not self.clipboard:
             return
-            
-        if not self.clipboard:
-            return
-            
-        # Save state for undo before making changes
+
         self._save_state_for_undo()
-            
-        # Get insertion point
         sel = self.get_selected_indices()
-        
-        # Insert copies of clipboard items
-        for i, block in enumerate(self.clipboard):
-            copied_block = block.copy()
 
-            # 이미지 매치 조건 블록인지 확인
-            is_image_match_copy = (copied_block.event_type == EventType.IF and
-                                 hasattr(copied_block, 'condition_type') and
-                                 copied_block.condition_type and
-                                 copied_block.condition_type.value == 'image_match')
+        if sel:
+            # Use the first selected index as the base insertion point
+            selected_idx = sel[0]
+            selected_block, selected_depth = self.flat_blocks[selected_idx]
 
-            if sel:
-                selected_idx = sel[0] + i
-                if selected_idx < len(self.flat_blocks):
-                    selected_block, selected_depth = self.flat_blocks[selected_idx]
-                    if selected_block.event_type == EventType.IF:
-                        # 조건 내부에 추가: 이미지 매치 조건이 아니면 상위좌표 참조 정리
-                        self._clear_reference_positions_if_needed(copied_block, selected_block, is_image_match_copy)
-                        selected_block.macro_blocks.append(copied_block)
-                    else:
-                        self._insert_after_selected_block(copied_block, selected_idx, selected_block, selected_depth)
-                else:
-                    # Insert at end if beyond current range: 루트 레벨이므로 상위좌표 참조 정리
-                    self._clear_reference_positions_if_needed(copied_block, None, is_image_match_copy)
-                    self.macro_blocks.append(copied_block)
+            # Determine the insertion location
+            if selected_block.event_type == EventType.IF:
+                # Insert inside the IF block
+                parent_block = selected_block
+                insert_list = parent_block.macro_blocks
+                insert_position = len(insert_list)  # Insert at the end of the IF block
             else:
-                # No selection, add to end: 루트 레벨이므로 상위좌표 참조 정리
+                # Insert after the selected block
+                if selected_depth == 0:
+                    # Root level
+                    parent_block = None
+                    insert_list = self.macro_blocks
+                    insert_position = self.macro_blocks.index(selected_block) + 1
+                else:
+                    # Find parent block
+                    parent_block = self._find_parent_block(selected_idx, selected_block)
+                    if parent_block and hasattr(parent_block, 'macro_blocks'):
+                        insert_list = parent_block.macro_blocks
+                        insert_position = parent_block.macro_blocks.index(selected_block) + 1
+                    else:
+                        # Fallback to root level
+                        parent_block = None
+                        insert_list = self.macro_blocks
+                        insert_position = len(self.macro_blocks)
+
+            for i, block in enumerate(self.clipboard):
+                copied_block = block.copy()
+                is_image_match_copy = self._is_image_match_block(copied_block)
+                self._clear_reference_positions_if_needed(copied_block, parent_block, is_image_match_copy)
+                insert_list.insert(insert_position + i, copied_block)
+
+        else:
+            for block in self.clipboard:
+                copied_block = block.copy()
+                is_image_match_copy = self._is_image_match_block(copied_block)
                 self._clear_reference_positions_if_needed(copied_block, None, is_image_match_copy)
                 self.macro_blocks.append(copied_block)
         
         self._rebuild_flat_list()
         self._refresh_display()
-        
+
+        # Select the newly pasted blocks
+        if sel and self.clipboard:
+            # Calculate where the pasted blocks should appear in the flat list
+            original_selected_idx = sel[0]
+
+            # Rebuild flat list to get updated positions
+            if original_selected_idx < len(self.flat_blocks):
+                # Try to find the new position of pasted blocks
+                # They should be right after the original selected position
+                paste_start_idx = original_selected_idx + 1
+                paste_end_idx = paste_start_idx + len(self.clipboard) - 1
+
+                # Ensure we don't go beyond the list bounds
+                if paste_start_idx < len(self.flat_blocks):
+                    paste_end_idx = min(paste_end_idx, len(self.flat_blocks) - 1)
+                    self.selected_indices = list(range(paste_start_idx, paste_end_idx + 1))
+                    self.last_selected_index = paste_start_idx
+                    self._update_selection_display()
+                    self.macro_listbox.see(paste_start_idx)
+                    self.macro_listbox.focus_set()
+        elif self.clipboard:
+            # No selection, items were added to the end - select the pasted blocks
+            total_blocks = len(self.flat_blocks)
+            clipboard_size = len(self.clipboard)
+            paste_start_idx = total_blocks - clipboard_size
+            paste_end_idx = total_blocks - 1
+
+            if paste_start_idx >= 0:
+                self.selected_indices = list(range(paste_start_idx, paste_end_idx + 1))
+                self.last_selected_index = paste_start_idx
+                self._update_selection_display()
+                self.macro_listbox.see(paste_start_idx)
+                self.macro_listbox.focus_set()
+
         # Mark as dirty
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
-            
+
         return "break"
 
     def _save_state_for_undo(self):
@@ -466,19 +527,50 @@ class MacroListManager:
             
         return "break"
 
-    def _on_up_arrow(self, event):
-        """위쪽 방향키로 선택 이동"""
+    def _on_save(self, event):
+        """Handle Ctrl+S to save file."""
+        # Don't save if inline editing is active
         if self.inline_edit.is_editing():
-            return  # 편집 중이면 무시
+            return
+
+        # Call the save callback if available
+        if self.save_callback:
+            self.save_callback()
+
+        return "break"
+
+    def _on_select_all(self, event):
+        """Handle Ctrl+A to select all blocks."""
+        # Don't select all if inline editing is active
+        if self.inline_edit.is_editing():
+            return
+
+        # Select all blocks if there are any
+        if self.flat_blocks:
+            self.selected_indices = list(range(len(self.flat_blocks)))
+            self.last_selected_index = 0 if self.flat_blocks else None
+            self._update_selection_display()
+            # Scroll to first item
+            if self.selected_indices:
+                self.macro_listbox.see(0)
+
+        return "break"
+
+    def _on_up_arrow(self, event):
+        """Move selection up."""
+        if self.inline_edit.is_editing():
+            return
 
         if not self.selected_indices:
-            # 선택된 항목이 없으면 마지막 항목 선택
             if self.flat_blocks:
                 self.selected_indices = [len(self.flat_blocks) - 1]
+                self.last_selected_index = len(self.flat_blocks) - 1
         else:
             current_idx = self.selected_indices[0]
             if current_idx > 0:
                 self.selected_indices = [current_idx - 1]
+                self.last_selected_index = current_idx - 1
+                self.range_anchor = current_idx - 1
 
         self._update_selection_display()
         if self.selected_indices:
@@ -486,37 +578,84 @@ class MacroListManager:
         return "break"
 
     def _on_down_arrow(self, event):
-        """아래쪽 방향키로 선택 이동"""
+        """Move selection down."""
         if self.inline_edit.is_editing():
-            return  # 편집 중이면 무시
+            return
 
         if not self.selected_indices:
-            # 선택된 항목이 없으면 첫 번째 항목 선택
             if self.flat_blocks:
                 self.selected_indices = [0]
+                self.last_selected_index = 0
         else:
             current_idx = self.selected_indices[0]
             if current_idx < len(self.flat_blocks) - 1:
                 self.selected_indices = [current_idx + 1]
+                self.last_selected_index = current_idx + 1
+                self.range_anchor = current_idx + 1
 
         self._update_selection_display()
         if self.selected_indices:
             self.macro_listbox.see(self.selected_indices[0])
         return "break"
 
+    def _on_shift_up_arrow(self, event):
+        """Extend selection upward."""
+        if self.inline_edit.is_editing() or not self.selected_indices:
+            return
+
+        if self.range_anchor is None:
+            self.range_anchor = self.selected_indices[0]
+
+        min_selected = min(self.selected_indices)
+        max_selected = max(self.selected_indices)
+
+        active_end = max_selected if self.range_anchor == min_selected else min_selected
+        new_active_end = active_end - 1
+
+        if new_active_end >= 0:
+            start = min(self.range_anchor, new_active_end)
+            end = max(self.range_anchor, new_active_end)
+            self.selected_indices = list(range(start, end + 1))
+            self.last_selected_index = new_active_end
+            self._update_selection_display()
+            self.macro_listbox.see(new_active_end)
+
+        return "break"
+
+    def _on_shift_down_arrow(self, event):
+        """Extend selection downward."""
+        if self.inline_edit.is_editing() or not self.selected_indices:
+            return
+
+        if self.range_anchor is None:
+            self.range_anchor = self.selected_indices[0]
+
+        min_selected = min(self.selected_indices)
+        max_selected = max(self.selected_indices)
+
+        active_end = max_selected if self.range_anchor == min_selected else min_selected
+        new_active_end = active_end + 1
+
+        if new_active_end < len(self.flat_blocks):
+            start = min(self.range_anchor, new_active_end)
+            end = max(self.range_anchor, new_active_end)
+            self.selected_indices = list(range(start, end + 1))
+            self.last_selected_index = new_active_end
+            self._update_selection_display()
+            self.macro_listbox.see(new_active_end)
+
+        return "break"
+
 
     def _clear_reference_positions_if_needed(self, block: MacroBlock, target_parent: MacroBlock = None, is_image_match_block_copy: bool = False):
-        """Clear reference positions for mouse blocks if they are not inside an image match condition."""
-        # 이미지 매치 조건 블록 자체를 복사하는 경우, 내부 참조는 그대로 유지
+        """Clear reference positions for mouse blocks when needed."""
         if is_image_match_block_copy:
             return
 
-        # 현재 블록이 마우스 블록이고 상위좌표 참조를 가지고 있는지 확인
         if (block.event_type == EventType.MOUSE and
             hasattr(block, 'clear_reference_position') and
             block.has_reference_position()):
 
-            # 대상 부모가 이미지 매치 조건이 아니면 참조를 0,0으로 변경
             if not (target_parent and
                    target_parent.event_type == EventType.IF and
                    hasattr(target_parent, 'condition_type') and
@@ -524,25 +663,26 @@ class MacroListManager:
                    target_parent.condition_type.value == 'image_match'):
                 block.clear_reference_position()
 
-        # 중첩된 블록들도 재귀적으로 처리
         if hasattr(block, 'macro_blocks') and block.macro_blocks:
             for child_block in block.macro_blocks:
-                # 현재 블록이 이미지 매치 조건이면 하위 블록들의 참조는 유지
-                child_is_image_match_copy = (block.event_type == EventType.IF and
-                                           hasattr(block, 'condition_type') and
-                                           block.condition_type and
-                                           block.condition_type.value == 'image_match')
-
+                child_is_image_match_copy = self._is_image_match_block(block)
                 self._clear_reference_positions_if_needed(child_block, target_parent, child_is_image_match_copy)
-
-
-
 
     def _update_global_state(self):
         """Update global state with current macro information."""
-        # 현재 매크로 정보를 객체로 만들어 GlobalState에 저장
         class CurrentMacro:
             def __init__(self, macro_blocks):
                 self.macro_blocks = macro_blocks
 
         GlobalState.current_macro = CurrentMacro(self.macro_blocks)
+
+    def _select_newly_added_block(self, new_block: MacroBlock):
+        """Select the newly added block."""
+        for i, (block, depth) in enumerate(self.flat_blocks):
+            if block is new_block:
+                self.selected_indices = [i]
+                self.last_selected_index = i
+                self._update_selection_display()
+                self.macro_listbox.see(i)
+                self.macro_listbox.focus_set()
+                break

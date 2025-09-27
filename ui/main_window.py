@@ -27,22 +27,16 @@ class MacroUI:
         self.root.title("Namaan's Macro")
         self.root.geometry("500x450")
 
-        # 상태
         self.running = False
-        
-        # 설정/단축키
+
         self.settings = default_settings()
         self.hotkeys = default_hotkeys()
         self.hotkey_handles = {"start": None, "stop": None}
 
-        # 파일 상태
         self.current_path: str | None = None
         self.is_dirty: bool = False
 
-        # UI 컴포넌트 초기화
         self._init_components()
-        
-        # UI 빌드
         self._build_menu()
         self._build_layout()
         self._bind_events()
@@ -50,14 +44,9 @@ class MacroUI:
         self._restore_last_file()
 
     def _init_components(self):
-        # 매크로 리스트 관리자는 레이아웃에서 초기화
         self.macro_list = None
-        
-        # 실행 엔진
         self.executor = MacroExecutor(self.root)
-        self.highlighter = None  # 리스트박스 생성 후 초기화
-        
-        # 다이얼로그들
+        self.highlighter = None
         self.settings_dialog = None
         self.input_dialogs = None
         self.condition_dialog = None
@@ -101,29 +90,23 @@ class MacroUI:
         left_frame = tk.Frame(main_frame, bd=2, relief=tk.SUNKEN)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # 매크로 리스트 관리자 초기화
-        self.macro_list = MacroListManager(left_frame, self._mark_dirty)
+        self.macro_list = MacroListManager(left_frame, self._mark_dirty, self.save_file)
         self.macro_list.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
         
-        # 하이라이터 초기화
         self.highlighter = MacroHighlighter(self.macro_list.macro_listbox)
-        
-        # 실행기 콜백 설정
+
         self.executor.set_callbacks(
             highlight_cb=self.highlighter.highlight_index,
             clear_highlight_cb=self.highlighter.clear_highlight,
             finish_cb=self._finish_execution
         )
-        
-        # 다이얼로그 초기화
+
         self.settings_dialog = SettingsDialog(
-            self.root, self.settings, self.hotkeys, 
+            self.root, self.settings, self.hotkeys,
             self._mark_dirty, self._register_hotkeys_if_available
         )
         self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_macro_block)
         self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_macro_block)
-
-        # 오른쪽 버튼들
         tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
         tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
         tk.Button(right_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
@@ -345,12 +328,9 @@ class MacroUI:
 
         self.macro_list.delete_selected()
 
-        # Update selection after deletion
         size = self.macro_list.size()
         if size > 0:
-            # 삭제된 위치에 있는 블록 선택, 마지막 블록이었다면 새로운 마지막 블록 선택
             new_index = min(first_deleted_index, size - 1)
-
             self.macro_list.macro_listbox.selection_clear(0, tk.END)
             self.macro_list.macro_listbox.selection_set(new_index)
             self.macro_list.macro_listbox.activate(new_index)

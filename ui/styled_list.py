@@ -9,13 +9,10 @@ class StyledList(tk.Text):
         kwargs.setdefault("cursor", "arrow")
         kwargs.setdefault("height", 1)
 
-        # 이모지 지원을 위한 폰트 설정
         try:
-            # Windows에서 이모지를 잘 표시하는 폰트들
             emoji_font = ("Segoe UI Emoji", 9)
             kwargs.setdefault("font", emoji_font)
         except:
-            # 폰트 설정 실패시 기본 폰트 사용
             pass
 
         super().__init__(master, **kwargs)
@@ -25,10 +22,25 @@ class StyledList(tk.Text):
         self._desc_color = desc_color
         self._lines: list[tuple[str, str]] = []
         self._cur_index: int | None = None
+        self._selected_indices: set[int] = set()  # Multiple selection support
 
         self.tag_configure("desc", foreground=self._desc_color)
         self.tag_configure("selrow", background="lightblue", foreground="black")
+
         self.configure(state="disabled")
+        self.configure(exportselection=False)
+        self.configure(selectbackground=self.cget("background"))
+        self.configure(selectforeground=self.cget("foreground"))
+
+        self.bind("<Button-1>", self._on_text_click)
+        self.bind("<B1-Motion>", self._prevent_text_selection)
+        self.bind("<Double-Button-1>", self._prevent_text_selection)
+        self.bind("<Triple-Button-1>", self._prevent_text_selection)
+        self.bind("<Shift-Button-1>", self._prevent_text_selection)
+        self.bind("<ButtonRelease-1>", self._clear_text_selection)
+        self.bind("<KeyPress>", self._clear_text_selection)
+        self.bind("<FocusIn>", self._clear_text_selection)
+        self.bind("<FocusOut>", self._clear_text_selection)
 
     # ---------- 내부 렌더 ----------
     def _render_all(self):
@@ -42,17 +54,78 @@ class StyledList(tk.Text):
             tk.Text.insert(self, "end", "\n")
         self.configure(state="disabled")
 
-        if self._cur_index is not None and 0 <= self._cur_index < len(self._lines):
-            self._apply_selection(self._cur_index)
+        self.tag_remove("sel", "1.0", "end")
+        self.selection_clear()
+        self._apply_multiple_selection()
 
     def _apply_selection(self, idx: int | None):
+        """Apply single selection highlighting."""
+        current_state = self.cget("state")
+        self.configure(state="normal")
+
         self.tag_remove("selrow", "1.0", "end")
+        self.tag_remove("sel", "1.0", "end")
         if idx is None or idx < 0 or idx >= len(self._lines):
             self._cur_index = None
+            self._selected_indices.clear()
+            self.configure(state=current_state)
             return
         self._cur_index = idx
+        self._selected_indices = {idx}
         ln = idx + 1
-        self.tag_add("selrow", f"{ln}.0", f"{ln}.0 lineend")
+        line_text = tk.Text.get(self, f"{ln}.0", f"{ln}.0 lineend").rstrip()
+        if line_text:
+            line_end_pos = f"{ln}.{len(line_text)}"
+            self.tag_add("selrow", f"{ln}.0", line_end_pos)
+
+        self.configure(state=current_state)
+
+    def _apply_multiple_selection(self):
+        """Apply multiple selection highlighting."""
+        current_state = self.cget("state")
+        self.configure(state="normal")
+
+        self.tag_remove("selrow", "1.0", "end")
+        self.tag_remove("sel", "1.0", "end")
+        for idx in self._selected_indices:
+            if 0 <= idx < len(self._lines):
+                ln = idx + 1
+                line_text = tk.Text.get(self, f"{ln}.0", f"{ln}.0 lineend").rstrip()
+                if line_text:
+                    line_end_pos = f"{ln}.{len(line_text)}"
+                    self.tag_add("selrow", f"{ln}.0", line_end_pos)
+
+        self.configure(state=current_state)
+
+    def _on_text_click(self, event):
+        """Prevent text selection on click."""
+        try:
+            self.tag_remove("sel", "1.0", "end")
+            tk.Text.selection_clear(self)
+            self.after_idle(self._do_clear_selection)
+        except:
+            pass
+        return "break"
+
+    def _prevent_text_selection(self, event):
+        """Prevent text selection from drag/double-click."""
+        return "break"
+
+    def _clear_text_selection(self, event=None):
+        """Clear text selection immediately."""
+        try:
+            self.after_idle(self._do_clear_selection)
+        except:
+            pass
+        return "break"
+
+    def _do_clear_selection(self):
+        """Actually clear the selection."""
+        try:
+            self.tag_remove("sel", "1.0", "end")
+            tk.Text.selection_clear(self)
+        except:
+            pass
 
     # ---------- Listbox 호환 ----------
     def size(self):
@@ -103,16 +176,44 @@ class StyledList(tk.Text):
         self._render_all()
 
     def selection_clear(self, *_):
-        self._apply_selection(None)
+        self._selected_indices.clear()
+        self._cur_index = None
+        self.tag_remove("selrow", "1.0", "end")
 
     def selection_set(self, idx: int):
+        """Set selection to a single index."""
         self._apply_selection(int(idx))
+
+    def selection_add(self, idx: int):
+        """Add an index to the current selection."""
+        idx = int(idx)
+        if 0 <= idx < len(self._lines):
+            self._selected_indices.add(idx)
+            self._cur_index = idx
+            self._apply_multiple_selection()
+
+    def selection_remove(self, idx: int):
+        """Remove an index from the current selection."""
+        idx = int(idx)
+        self._selected_indices.discard(idx)
+        if self._cur_index == idx:
+            self._cur_index = next(iter(self._selected_indices), None)
+        self._apply_multiple_selection()
+
+    def selection_set_multiple(self, indices: list[int]):
+        """Set selection to multiple indices."""
+        self._selected_indices.clear()
+        for idx in indices:
+            if 0 <= idx < len(self._lines):
+                self._selected_indices.add(idx)
+        self._cur_index = indices[0] if indices else None
+        self._apply_multiple_selection()
 
     def activate(self, idx: int):
         self._apply_selection(int(idx))
 
     def curselection(self):
-        return () if self._cur_index is None else (self._cur_index,)
+        return tuple(sorted(self._selected_indices))
 
     def see(self, idx: int):
         ln = int(idx) + 1

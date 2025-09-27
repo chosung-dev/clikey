@@ -1,9 +1,7 @@
-# app.py
 import sys
 import threading
 import tkinter as tk
 
-# Windows DPI awareness (optional)
 try:
     import ctypes
     import platform
@@ -13,7 +11,7 @@ except Exception:
     pass
 
 from ui.main_window import MacroUI
-from core.keyboard_hotkey import keyboard  # re-exported
+from core.keyboard_hotkey import keyboard
 
 def main():
     root = tk.Tk()
@@ -33,10 +31,8 @@ def main():
 
     def on_close():
         try:
-            # ▶ 추가: 실행 중이면 먼저 중지 유도
             if getattr(ui, "running", False):
                 ui.stop_execution()
-            # ▶ 추가: 저장 확인(취소하면 종료 중단)
             try:
                 if hasattr(ui, "_confirm_save_if_dirty"):
                     if not ui._confirm_save_if_dirty():
