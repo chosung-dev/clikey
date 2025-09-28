@@ -92,7 +92,7 @@ class MacroUI:
 
         self.macro_list = MacroListManager(left_frame, self._mark_dirty, self.save_file)
         self.macro_list.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
-        
+
         self.highlighter = MacroHighlighter(self.macro_list.macro_listbox)
 
         self.executor.set_callbacks(
@@ -108,18 +108,25 @@ class MacroUI:
         self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_macro_block)
         self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_macro_block)
         self.condition_dialog.set_macro_list(self.macro_list)
-        tk.Button(right_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
-        tk.Button(right_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
-        tk.Button(right_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
-        tk.Button(right_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
-        tk.Button(right_frame, text="이미지조건", width=18, command=self.add_image_match_condition).pack(pady=6)
-        tk.Button(right_frame, text="좌표조건", width=18, command=self.add_coordinate_condition).pack(pady=6)
-        tk.Button(right_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=6)
 
-        self.run_btn = tk.Button(right_frame, text="▶ 실행하기", width=18, command=self.run_macros)
-        self.run_btn.pack(pady=(16, 6))
-        self.stop_btn = tk.Button(right_frame, text="■ 중지", width=18, state=tk.DISABLED, command=self.stop_execution)
-        self.stop_btn.pack(pady=6)
+        # 실행/중지 버튼을 하단에 배치하기 위한 프레임
+        bottom_frame = tk.Frame(right_frame)
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(16, 0))
+
+        self.toggle_btn = tk.Button(bottom_frame, text="▶ 실행하기", width=18, command=self.toggle_execution)
+        self.toggle_btn.pack(pady=6)
+
+        # 나머지 버튼들을 위쪽에 배치하기 위한 프레임
+        top_frame = tk.Frame(right_frame)
+        top_frame.pack(side=tk.TOP, fill=tk.X)
+
+        tk.Button(top_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
+        tk.Button(top_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
+        tk.Button(top_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
+        tk.Button(top_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=(6, 16))
+        tk.Button(top_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
+        tk.Button(top_frame, text="이미지조건", width=18, command=self.add_image_match_condition).pack(pady=6)
+        tk.Button(top_frame, text="좌표조건", width=18, command=self.add_coordinate_condition).pack(pady=6)
 
     def _bind_events(self):
         self.root.bind("<Control-s>", self._on_save)
@@ -342,6 +349,12 @@ class MacroUI:
             self.macro_list.selected_indices = [new_index]
 
     # ---------- 실행/중지 ----------
+    def toggle_execution(self):
+        if self.running:
+            self.stop_execution()
+        else:
+            self.run_macros()
+
     def run_macros(self):
         if self.running:
             messagebox.showinfo("안내", "이미 실행 중입니다.")
@@ -351,8 +364,7 @@ class MacroUI:
             return
 
         self.running = True
-        self.run_btn.config(state=tk.DISABLED)
-        self.stop_btn.config(state=tk.NORMAL)
+        self.toggle_btn.config(text="■ 중지")
 
         macro_blocks = self.macro_list.get_macro_blocks()
         if self.executor.start_execution(macro_blocks, self.settings):
@@ -367,8 +379,7 @@ class MacroUI:
 
     def _finish_execution(self):
         self.running = False
-        self.run_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
+        self.toggle_btn.config(text="▶ 실행하기")
 
         if self.settings.get("beep_on_finish", True):
             try:

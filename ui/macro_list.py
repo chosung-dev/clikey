@@ -414,7 +414,7 @@ class MacroListManager:
                 # Insert inside the IF block
                 parent_block = selected_block
                 insert_list = parent_block.macro_blocks
-                insert_position = len(insert_list)  # Insert at the end of the IF block
+                insert_position = 0  # Insert at the beginning of the IF block
             else:
                 # Insert after the selected block
                 if selected_depth == 0:
