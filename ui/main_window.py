@@ -126,7 +126,8 @@ class MacroUI:
         tk.Button(top_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=(6, 16))
         tk.Button(top_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
         tk.Button(top_frame, text="이미지조건", width=18, command=self.add_image_match_condition).pack(pady=6)
-        tk.Button(top_frame, text="좌표조건", width=18, command=self.add_coordinate_condition).pack(pady=6)
+        # 추후 전문가 기능에 추가
+        # tk.Button(top_frame, text="좌표조건", width=18, command=self.add_coordinate_condition).pack(pady=6)
 
     def _bind_events(self):
         self.root.bind("<Control-s>", self._on_save)

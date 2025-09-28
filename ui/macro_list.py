@@ -132,6 +132,8 @@ class MacroListManager:
     def load_macro_blocks(self, macro_blocks: List[MacroBlock]):
         """Load macro blocks into the list."""
         self.macro_blocks = macro_blocks.copy()
+        self.selected_indices.clear()
+        self.last_selected_index = -1
         self._rebuild_flat_list()
         self._refresh_display()
         self._update_global_state()

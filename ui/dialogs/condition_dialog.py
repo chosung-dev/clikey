@@ -76,7 +76,7 @@ class ConditionDialog:
     def add_image_condition(self):
         win = tk.Toplevel(self.parent)
         win.title("색상 조건")
-        win.geometry("380x320+560+320")
+        win.geometry("380x280+560+320")
         win.resizable(False, False)
         win.transient(self.parent)
         win.lift()
@@ -224,14 +224,17 @@ class ConditionDialog:
         # 1. 정밀 캡처
         tk.Button(frm, text="정밀 캡처", command=show_magnifier, width=30).pack(pady=2)
 
-        # 2. 좌표/색 캡처, 상위좌표
-        capture_frame = tk.Frame(frm)
-        capture_frame.pack(pady=2)
-        tk.Button(capture_frame, text="좌표/색 캡처 (Enter)", command=capture, width=14).grid(row=0, column=0, padx=2)
-        parent_btn = tk.Button(capture_frame, text="상위좌표", command=capture_parent_coordinates, width=14)
-        parent_btn.grid(row=0, column=1, padx=2)
-        if not parent_coords:
-            parent_btn.config(state=tk.DISABLED)
+        # 2. 좌표/색 캡처
+        tk.Button(frm, text="좌표/색 캡처 (Enter)", command=capture, width=30).pack(pady=2)
+
+        # 상위좌표 버튼 임시 주석처리
+        # capture_frame = tk.Frame(frm)
+        # capture_frame.pack(pady=2)
+        # tk.Button(capture_frame, text="좌표/색 캡처 (Enter)", command=capture, width=14).grid(row=0, column=0, padx=2)
+        # parent_btn = tk.Button(capture_frame, text="상위좌표", command=capture_parent_coordinates, width=14)
+        # parent_btn.grid(row=0, column=1, padx=2)
+        # if not parent_coords:
+        #     parent_btn.config(state=tk.DISABLED)
 
         # 3. 고정 좌표 색 캡처
         tk.Button(frm, text="고정 좌표 색 캡처", command=capture_color, width=30).pack(pady=2)
@@ -269,8 +272,12 @@ class ConditionDialog:
         # 이미지 미리보기 프레임
         preview_frame = tk.Frame(frm)
         preview_frame.pack(pady=5)
-        preview_label = tk.Label(preview_frame, text="", bg="white", relief="sunken", width=30, height=8)
-        preview_label.pack()
+        preview_label = tk.Label(preview_frame, text="", bg="white", relief="sunken")
+        preview_label.pack(fill=tk.BOTH, expand=True)
+
+        # 고정 크기 설정
+        preview_frame.configure(width=280, height=150)
+        preview_frame.pack_propagate(False)
 
         def select_file():
             file_path = filedialog.askopenfilename(
@@ -296,9 +303,18 @@ class ConditionDialog:
                 from PIL import ImageGrab
                 img = ImageGrab.grabclipboard()
                 if img:
-                    # 임시 파일 생성
-                    temp_dir = tempfile.gettempdir()
-                    temp_path = os.path.join(temp_dir, f"clipboard_image_{os.getpid()}.png")
+                    # 프로그램 폴더의 images 디렉토리에 저장
+                    import time
+                    # 프로그램 루트 디렉토리 찾기
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    program_root = os.path.dirname(os.path.dirname(current_dir))  # ui/dialogs에서 두 단계 위로
+                    images_dir = os.path.join(program_root, "images")
+
+                    # images 디렉토리가 없으면 생성
+                    os.makedirs(images_dir, exist_ok=True)
+
+                    timestamp = int(time.time() * 1000000)  # 마이크로초까지 포함
+                    temp_path = os.path.join(images_dir, f"clipboard_image_{timestamp}.png")
                     img.save(temp_path)
 
                     selected_file["path"] = temp_path
@@ -365,8 +381,7 @@ class ConditionDialog:
         btn_frame = tk.Frame(frm)
         btn_frame.pack(pady=15)
 
-        tk.Button(btn_frame, text="파일 선택", command=select_file, width=12).grid(row=0, column=0, padx=5)
-        tk.Button(btn_frame, text="클립보드 붙여넣기", command=paste_from_clipboard, width=15).grid(row=0, column=1, padx=5)
+        tk.Button(btn_frame, text="파일 선택", command=select_file, width=29).grid(row=0, column=0, columnspan=2, padx=5)
         tk.Button(btn_frame, text="추가", command=apply_block, width=12).grid(row=1, column=0, padx=5, pady=5)
         tk.Button(btn_frame, text="취소", command=on_close, width=12).grid(row=1, column=1, padx=5, pady=5)
 
@@ -378,8 +393,8 @@ class ConditionDialog:
         try:
             # PIL로 이미지 로드 및 리사이즈
             with Image.open(image_path) as img:
-                # 비율 유지하면서 120x80 안에 맞추기
-                img.thumbnail((120, 80), Image.Resampling.LANCZOS)
+                # 비율 유지하면서 300x200 안에 맞추기
+                img.thumbnail((300, 200), Image.Resampling.LANCZOS)
 
                 # tkinter에서 사용할 수 있는 형태로 변환
                 photo = ImageTk.PhotoImage(img)

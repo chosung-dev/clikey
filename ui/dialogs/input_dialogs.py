@@ -17,6 +17,14 @@ class InputDialogs:
         key_window = tk.Toplevel(self.parent)
         key_window.geometry("320x120+520+320")
 
+        key_window.transient(self.parent)
+        key_window.lift()
+        key_window.attributes("-topmost", True)
+        key_window.grab_set()
+        key_window.focus_force()
+        key_window.bind("<Map>", lambda e: key_window.focus_force())
+        key_window.after(200, lambda: key_window.attributes("-topmost", False))
+
         frame = tk.Frame(key_window, bd=2, relief=tk.RAISED)
         frame.pack(expand=True, fill="both")
 
