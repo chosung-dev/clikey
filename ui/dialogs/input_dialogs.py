@@ -9,9 +9,11 @@ from core.macro_factory import MacroFactory
 
 
 class InputDialogs:
-    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None]):
+    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None], is_edit_mode_callback: Callable[[], bool] = None, cancel_edit_callback: Callable[[], None] = None):
         self.parent = parent
         self.insert_callback = insert_callback
+        self.is_edit_mode_callback = is_edit_mode_callback
+        self.cancel_edit_callback = cancel_edit_callback
 
     def add_keyboard(self):
         key_window = tk.Toplevel(self.parent)
@@ -40,6 +42,14 @@ class InputDialogs:
 
         key_window.bind("<Key>", on_key)
         key_window.focus_set()
+
+        # X버튼 클릭 시에도 편집 모드 해제
+        def on_close_keyboard():
+            if self.cancel_edit_callback:
+                self.cancel_edit_callback()
+            key_window.destroy()
+
+        key_window.protocol("WM_DELETE_WINDOW", on_close_keyboard)
 
     def add_mouse(self, selected_condition_block=None):
         mouse_win = tk.Toplevel(self.parent)
@@ -193,11 +203,17 @@ class InputDialogs:
                 mouse_win.grab_release()
             except Exception:
                 pass
+            # 편집 모드 취소
+            if self.cancel_edit_callback:
+                self.cancel_edit_callback()
             mouse_win.destroy()
 
         mouse_win.bind("<Return>", lambda e: capture())
         mouse_win.bind("<Control-Return>", lambda e: add_item())
         mouse_win.bind("<Escape>", lambda e: on_close())
+
+        # X버튼 클릭 시에도 편집 모드 해제
+        mouse_win.protocol("WM_DELETE_WINDOW", on_close)
 
         btns = tk.Frame(frame)
         btns.pack(pady=10)
@@ -232,7 +248,9 @@ class InputDialogs:
         # 초기 상태에서 버튼 상태 확인
         self.update_reference_button_state(ref_btn, selected_condition_block)
 
-        tk.Button(btns, text="추가 (Ctrl+Enter)", width=16, command=add_item).grid(row=1, column=0, columnspan=2, padx=5, pady=5)
+        # 편집 모드에 따라 버튼 텍스트 결정
+        button_text = "수정 (Ctrl+Enter)" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가 (Ctrl+Enter)"
+        tk.Button(btns, text=button_text, width=16, command=add_item).grid(row=1, column=0, columnspan=2, padx=5, pady=5)
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
 
     def add_delay(self):
@@ -281,17 +299,27 @@ class InputDialogs:
                 delay_window.grab_release()
             except:
                 pass
+            # 편집 모드 취소
+            if self.cancel_edit_callback:
+                self.cancel_edit_callback()
             delay_window.destroy()
 
         # 버튼들
         btn_frame = tk.Frame(frame)
         btn_frame.pack(pady=10)
-        tk.Button(btn_frame, text="추가", command=add_delay_item).pack(side=tk.LEFT, padx=5)
+
+        # 편집 모드에 따라 버튼 텍스트 결정
+        button_text = "수정" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가"
+
+        tk.Button(btn_frame, text=button_text, command=add_delay_item).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="취소", command=on_close).pack(side=tk.LEFT, padx=5)
 
         # 키 바인딩
         delay_window.bind("<Return>", lambda e: add_delay_item())
         delay_window.bind("<Escape>", lambda e: on_close())
+
+        # X버튼 클릭 시에도 편집 모드 해제
+        delay_window.protocol("WM_DELETE_WINDOW", on_close)
 
     def show_reference_selector(self, parent_win, btn_var, action_var, add_callback, cancel_callback):
         """상위좌표 선택 다이얼로그를 표시"""

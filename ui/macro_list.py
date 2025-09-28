@@ -13,6 +13,7 @@ class MacroListManager:
         self.parent = parent
         self.mark_dirty_callback = mark_dirty_callback
         self.save_callback = save_callback
+        self.edit_mode_callback = None  # 편집 모드 콜백
 
         self.container_frame = tk.Frame(parent)
 
@@ -65,6 +66,9 @@ class MacroListManager:
 
         # Bind save key
         self.macro_listbox.bind('<Control-s>', self._on_save)
+
+        # Bind double-click for editing
+        self.macro_listbox.bind('<Double-Button-1>', self._on_double_click)
 
         # Bind select all key
         self.macro_listbox.bind('<Control-a>', self._on_select_all)
@@ -691,3 +695,56 @@ class MacroListManager:
                 self.macro_listbox.see(i)
                 self.macro_listbox.focus_set()
                 break
+
+    def _on_double_click(self, event):
+        """Handle double-click to edit macro block."""
+        if self.inline_edit.is_editing():
+            return
+
+        # Get the clicked item
+        index = self.macro_listbox.nearest(event.y)
+        if index < 0 or index >= len(self.flat_blocks):
+            return
+
+        block, depth = self.flat_blocks[index]
+
+        # 편집 모드 콜백 호출 (MainWindow에서 설정)
+        if self.edit_mode_callback:
+            self.edit_mode_callback(block, index)
+
+        return "break"
+
+    def _replace_block(self, old_block: MacroBlock, new_block: MacroBlock, block_index: int):
+        """Replace a block with a new block at the specified index."""
+        self._save_state_for_undo()
+
+        # flat_blocks에서 해당 블록 찾기
+        if block_index < len(self.flat_blocks):
+            flat_block, depth = self.flat_blocks[block_index]
+
+            # 부모 블록에서 교체
+            if depth == 0:
+                # 루트 레벨 블록
+                for i, root_block in enumerate(self.macro_blocks):
+                    if root_block is old_block:
+                        self.macro_blocks[i] = new_block
+                        break
+            else:
+                # 중첩된 블록 - 부모 찾아서 교체
+                parent_block = self._find_parent_block(block_index, flat_block)
+                if parent_block and hasattr(parent_block, 'macro_blocks'):
+                    for i, child_block in enumerate(parent_block.macro_blocks):
+                        if child_block is old_block:
+                            parent_block.macro_blocks[i] = new_block
+                            break
+
+        # 화면 업데이트
+        self._rebuild_flat_list()
+        self._refresh_display()
+        self._update_global_state()
+
+        # 교체된 블록 선택
+        self._select_newly_added_block(new_block)
+
+        if self.mark_dirty_callback:
+            self.mark_dirty_callback(True)

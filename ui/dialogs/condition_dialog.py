@@ -13,15 +13,22 @@ from ui.magnifier import Magnifier
 
 
 class ConditionDialog:
-    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None]):
+    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None], is_edit_mode_callback: Callable[[], bool] = None, cancel_edit_callback: Callable[[], None] = None):
         self.parent = parent
         self.insert_callback = insert_callback
+        self.is_edit_mode_callback = is_edit_mode_callback
+        self.cancel_edit_callback = cancel_edit_callback
         self.magnifier = None
         self.macro_list = None  # 매크로 리스트에 대한 참조를 저장
+        self.edit_block = None  # 편집할 블록 저장
 
     def set_macro_list(self, macro_list):
         """매크로 리스트 참조를 설정"""
         self.macro_list = macro_list
+
+    def set_edit_block(self, block):
+        """편집할 블록 설정"""
+        self.edit_block = block
 
     def find_parent_coordinate_condition(self) -> Optional[Tuple[int, int]]:
         """Find the nearest parent coordinate condition and return its coordinates."""
@@ -194,6 +201,11 @@ class ConditionDialog:
                 x, y = captured['x'], captured['y']
                 macro_block = MacroFactory.create_rgb_match_block(x, y, expected_color)
 
+            # 편집 모드인 경우 기존 블록의 macro_blocks 보존
+            if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
+                macro_block.macro_blocks = self.edit_block.macro_blocks.copy()
+                macro_block.key = self.edit_block.key  # 기존 키도 유지
+
             self.insert_callback(macro_block)
             try:
                 win.grab_release()
@@ -210,6 +222,9 @@ class ConditionDialog:
                 pass
             if self.magnifier:
                 self.magnifier.hide()
+            # 편집 모드 취소
+            if self.cancel_edit_callback:
+                self.cancel_edit_callback()
             win.destroy()
 
         def on_escape(event):
@@ -239,8 +254,9 @@ class ConditionDialog:
         # 3. 고정 좌표 색 캡처
         tk.Button(frm, text="고정 좌표 색 캡처", command=capture_color, width=30).pack(pady=2)
 
-        # 4. 추가
-        tk.Button(frm, text="추가 (Ctrl+Enter)", command=apply_block, width=30).pack(pady=2)
+        # 4. 추가/수정
+        button_text = "수정 (Ctrl+Enter)" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가 (Ctrl+Enter)"
+        tk.Button(frm, text=button_text, command=apply_block, width=30).pack(pady=2)
 
         # 5. 취소
         tk.Button(frm, text="취소 (Esc)", command=on_close, width=30).pack(pady=2)
@@ -248,6 +264,9 @@ class ConditionDialog:
         win.bind("<Return>", lambda e: capture())
         win.bind("<Control-Return>", lambda e: apply_block())
         win.bind("<Escape>", on_escape)
+
+        # X버튼 클릭 시에도 편집 모드 해제
+        win.protocol("WM_DELETE_WINDOW", on_close)
 
     def add_image_match_condition(self):
         win = tk.Toplevel(self.parent)
@@ -361,6 +380,12 @@ class ConditionDialog:
 
             try:
                 macro_block = MacroFactory.create_image_match_block(selected_file["path"])
+
+                # 편집 모드인 경우 기존 블록의 macro_blocks 보존
+                if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
+                    macro_block.macro_blocks = self.edit_block.macro_blocks.copy()
+                    macro_block.key = self.edit_block.key  # 기존 키도 유지
+
                 self.insert_callback(macro_block)
                 on_close()
             except Exception as e:
@@ -371,6 +396,9 @@ class ConditionDialog:
                 win.grab_release()
             except Exception:
                 pass
+            # 편집 모드 취소
+            if self.cancel_edit_callback:
+                self.cancel_edit_callback()
             win.destroy()
 
         def on_paste_key(event):
@@ -382,11 +410,18 @@ class ConditionDialog:
         btn_frame.pack(pady=15)
 
         tk.Button(btn_frame, text="파일 선택", command=select_file, width=29).grid(row=0, column=0, columnspan=2, padx=5)
-        tk.Button(btn_frame, text="추가", command=apply_block, width=12).grid(row=1, column=0, padx=5, pady=5)
+
+        # 편집 모드에 따라 버튼 텍스트 결정
+        button_text = "수정" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가"
+
+        tk.Button(btn_frame, text=button_text, command=apply_block, width=12).grid(row=1, column=0, padx=5, pady=5)
         tk.Button(btn_frame, text="취소", command=on_close, width=12).grid(row=1, column=1, padx=5, pady=5)
 
         win.bind("<Escape>", lambda e: on_close())
         win.bind("<Control-v>", on_paste_key)
+
+        # X버튼 클릭 시에도 편집 모드 해제
+        win.protocol("WM_DELETE_WINDOW", on_close)
 
     def show_image_preview(self, image_path, preview_label):
         """이미지 미리보기 표시"""
@@ -447,6 +482,12 @@ class ConditionDialog:
                 return
             x, y = captured['x'], captured['y']
             macro_block = MacroFactory.create_coordinate_condition_block(x, y)
+
+            # 편집 모드인 경우 기존 블록의 macro_blocks 보존
+            if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
+                macro_block.macro_blocks = self.edit_block.macro_blocks.copy()
+                macro_block.key = self.edit_block.key  # 기존 키도 유지
+
             self.insert_callback(macro_block)
             try:
                 win.grab_release()

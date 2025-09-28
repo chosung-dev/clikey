@@ -8,7 +8,7 @@ from core.state import default_settings, default_hotkeys
 from core.keyboard_hotkey import register_hotkeys
 from core.persistence import export_data, load_macro_data, load_app_state, save_app_state
 from core.macro_block import MacroBlock
-from core.event_types import EventType
+from core.event_types import EventType, ConditionType
 from ui.macro_list import MacroListManager
 from ui.execution.executor import MacroExecutor
 from ui.execution.highlighter import MacroHighlighter
@@ -35,6 +35,9 @@ class MacroUI:
 
         self.current_path: str | None = None
         self.is_dirty: bool = False
+
+        # 편집 모드 상태
+        self.edit_mode = {"enabled": False, "block": None, "index": None}
 
         self._init_components()
         self._build_menu()
@@ -105,9 +108,12 @@ class MacroUI:
             self.root, self.settings, self.hotkeys,
             self._mark_dirty, self._register_hotkeys_if_available
         )
-        self.input_dialogs = InputDialogs(self.root, self.macro_list.insert_macro_block)
-        self.condition_dialog = ConditionDialog(self.root, self.macro_list.insert_macro_block)
+        self.input_dialogs = InputDialogs(self.root, self._handle_macro_insert, self._is_edit_mode, self._cancel_edit_mode)
+        self.condition_dialog = ConditionDialog(self.root, self._handle_macro_insert, self._is_edit_mode, self._cancel_edit_mode)
         self.condition_dialog.set_macro_list(self.macro_list)
+
+        # 매크로 리스트에 편집 모드 콜백 설정
+        self.macro_list.edit_mode_callback = self._start_edit_mode
 
         # 실행/중지 버튼을 하단에 배치하기 위한 프레임
         bottom_frame = tk.Frame(right_frame)
@@ -421,6 +427,65 @@ class MacroUI:
     def _on_add_description(self, event=None):
         self.add_description()
         return "break"
+
+    # ---------- 편집 모드 ----------
+    def _start_edit_mode(self, block, block_index):
+        """편집 모드 시작"""
+        from core.event_types import EventType
+
+        # 매크로 중지 블록은 편집하지 않음
+        if block.event_type == EventType.EXIT:
+            return
+
+        # 편집 모드 설정
+        self.edit_mode["enabled"] = True
+        self.edit_mode["block"] = block
+        self.edit_mode["index"] = block_index
+
+        # 블록 타입에 따라 적절한 다이얼로그 열기
+        if block.event_type == EventType.KEYBOARD:
+            self.add_keyboard()
+        elif block.event_type == EventType.MOUSE:
+            self.add_mouse()
+        elif block.event_type == EventType.DELAY:
+            self.add_delay()
+        elif block.event_type == EventType.IF:
+            # 조건 타입에 따라 분기
+            if hasattr(block, 'condition_type'):
+                # 편집할 블록을 조건 다이얼로그에 전달
+                self.condition_dialog.set_edit_block(block)
+                if block.condition_type == ConditionType.RGB_MATCH:
+                    self.add_image_condition()
+                elif block.condition_type == ConditionType.IMAGE_MATCH:
+                    self.add_image_match_condition()
+
+    def _finish_edit_mode(self, new_block):
+        """편집 모드 완료 - 기존 블록을 새 블록으로 교체"""
+        if self.edit_mode["enabled"] and self.edit_mode["block"] and self.edit_mode["index"] is not None:
+            # 블록 교체
+            self.macro_list._replace_block(self.edit_mode["block"], new_block, self.edit_mode["index"])
+
+        # 편집 모드 해제
+        self.edit_mode = {"enabled": False, "block": None, "index": None}
+
+    def _handle_macro_insert(self, new_block):
+        """매크로 삽입/편집 처리"""
+        if self.edit_mode["enabled"]:
+            # 편집 모드인 경우 기존 블록 교체
+            self._finish_edit_mode(new_block)
+        else:
+            # 일반 추가 모드인 경우 새 블록 삽입
+            self.macro_list.insert_macro_block(new_block)
+
+    def _is_edit_mode(self):
+        """편집 모드인지 확인"""
+        return self.edit_mode["enabled"]
+
+    def _cancel_edit_mode(self):
+        """편집 모드 취소"""
+        self.edit_mode = {"enabled": False, "block": None, "index": None}
+        # 조건 다이얼로그의 편집 블록도 초기화
+        self.condition_dialog.set_edit_block(None)
 
 
 if __name__ == "__main__":
