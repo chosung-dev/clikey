@@ -122,6 +122,9 @@ class MacroListManager:
     def clear(self):
         self.macro_listbox.delete(0, tk.END)
         self.macro_blocks.clear()
+        self.flat_blocks.clear()
+        self.selected_indices.clear()
+        self.last_selected_index = -1
 
     def size(self) -> int:
         return self.macro_listbox.size()
