@@ -93,7 +93,7 @@ class MacroListManager:
             selected_block, selected_depth = self.flat_blocks[selected_idx]
             if selected_block.event_type == EventType.IF:
                 self._clear_reference_positions_if_needed(macro_block, selected_block, is_image_match_copy)
-                selected_block.macro_blocks.append(macro_block)
+                selected_block.macro_blocks.insert(0, macro_block)
             else:
                 self._insert_after_selected_block(macro_block, selected_idx, selected_block, selected_depth)
         else:
