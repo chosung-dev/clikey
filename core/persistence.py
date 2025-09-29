@@ -26,7 +26,7 @@ def export_data(macro_blocks: List[MacroBlock], settings: Dict[str, Any], hotkey
 
 # --- 앱 상태 저장/복원: 최근 파일 경로 등 ---
 def _app_state_path() -> str:
-    base = os.path.join(os.path.expanduser("~"), ".namaans_macro")
+    base = os.path.join(os.path.expanduser("~"), ".clikey")
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, "app_state.json")
 

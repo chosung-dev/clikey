@@ -24,8 +24,14 @@ pyautogui.PAUSE = 0.02
 class MacroUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Namaan's Macro")
+        self.root.title("Clikey")
         self.root.geometry("500x450")
+
+        # 윈도우 아이콘 설정
+        try:
+            self.root.iconbitmap("app.ico")
+        except Exception:
+            pass
 
         self.running = False
 
@@ -159,7 +165,7 @@ class MacroUI:
     def _update_title(self):
         name = self.current_path if self.current_path else "Untitled"
         mark = "*" if self.is_dirty else ""
-        self.root.title(f"Namaan's Macro - {name}{mark}")
+        self.root.title(f"Clikey - {name}{mark}")
 
     def _mark_dirty(self, flag=True):
         self.is_dirty = bool(flag)

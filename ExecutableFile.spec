@@ -2,7 +2,7 @@ from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_dynamic_libs
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument("--app-name", default="NamaanMacro")
+parser.add_argument("--app-name", default="Clikey")
 opts = parser.parse_args()
 
 hidden = [
@@ -22,7 +22,7 @@ a = Analysis(
     pathex=[],
     binaries=autoit_bins,
     datas=[
-        # ('assets/app.ico', 'assets'),  # 아이콘/리소스가 있으면 이런 식으로 추가
+        ('app.ico'),
     ],
     hiddenimports=hidden,
     hookspath=[],
@@ -54,5 +54,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name='NamaansMacro'
+    name='Clikey'
 )

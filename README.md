@@ -1,6 +1,5 @@
-# Namaan’s Macro
-
-> Tkinter 기반 매크로 편집·실행 도구
+# 나만을 위한 매크로 Clikey
+![sample.png](sample.png)
 
 ------
 
