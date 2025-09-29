@@ -12,8 +12,13 @@ except Exception:
 
 from ui.main_window import MacroUI
 from core.keyboard_hotkey import keyboard
+from utils.admin_utils import request_admin_if_needed
 
 def main():
+    # Windows에서 관리자 권한 확인 및 요청
+    if not request_admin_if_needed():
+        return
+
     root = tk.Tk()
     ui = MacroUI(root)
 
