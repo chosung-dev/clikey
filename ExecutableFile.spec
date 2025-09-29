@@ -44,7 +44,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,          # 콘솔 창 숨김
-    icon=None,              # 아이콘 있으면 'assets/app.ico'
+    icon='app.ico',
 )
 
 coll = COLLECT(
