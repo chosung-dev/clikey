@@ -22,7 +22,7 @@ a = Analysis(
     pathex=[],
     binaries=autoit_bins,
     datas=[
-        ('app.ico'),
+        ('app.ico', '.'),
     ],
     hiddenimports=hidden,
     hookspath=[],

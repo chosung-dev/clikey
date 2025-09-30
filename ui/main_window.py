@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import tkinter as tk
 from tkinter import messagebox, filedialog
@@ -29,7 +30,16 @@ class MacroUI:
 
         # 윈도우 아이콘 설정
         try:
-            self.root.iconbitmap("app.ico")
+            # PyInstaller 환경에서 리소스 경로 처리
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller로 패키징된 환경
+                icon_path = os.path.join(sys._MEIPASS, "app.ico")
+            else:
+                # 개발 환경
+                icon_path = "app.ico"
+
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
         except Exception:
             pass
 
