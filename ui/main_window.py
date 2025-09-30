@@ -173,7 +173,10 @@ class MacroUI:
 
     # ---------- 타이틀/더티 ----------
     def _update_title(self):
-        name = self.current_path if self.current_path else "Untitled"
+        if self.current_path:
+            name = os.path.basename(self.current_path)
+        else:
+            name = "Untitled"
         mark = "*" if self.is_dirty else ""
         self.root.title(f"Clikey - {name}{mark}")
 
