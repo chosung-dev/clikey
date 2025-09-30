@@ -7,12 +7,12 @@ class MacroFactory:
     """Factory class for creating common macro blocks."""
 
     @staticmethod
-    def create_keyboard_block(key: str, description: str = "") -> MacroBlock:
+    def create_keyboard_block(key: str, action: str = "press", description: str = "") -> MacroBlock:
         """Create a keyboard macro block."""
         return MacroBlock(
             event_type=EventType.KEYBOARD,
             event_data=key,
-            action="press",
+            action=action,
             description=description
         )
 

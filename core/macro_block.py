@@ -82,7 +82,8 @@ class MacroBlock:
     def get_display_text(self) -> str:
         """Get display text for UI list."""
         if self.event_type == EventType.KEYBOARD:
-            return f"⌨️ 키보드 {self.event_data} ({self.action})"
+            action_text = {"press": "누르기", "down": "누르고있기", "up": "떼기"}.get(self.action, self.action)
+            return f"⌨️ 키보드 {self.event_data} ({action_text})"
         elif self.event_type == EventType.MOUSE:
             position_display = self.position
             if self.position and self.position.strip() == "@parent":

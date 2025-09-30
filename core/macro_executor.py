@@ -80,7 +80,7 @@ class MacroExecutor:
                 self._execute_delay(macro_block)
 
             elif macro_block.event_type == EventType.IF:
-                self._execute_condition(macro_block, flat_blocks, base_index)
+                return self._execute_condition(macro_block, flat_blocks, base_index)
 
             elif macro_block.event_type == EventType.EXIT:
                 return self._execute_exit(macro_block)
@@ -94,7 +94,7 @@ class MacroExecutor:
         """Execute keyboard action."""
         if not macro_block.event_data:
             return
-            
+
         key = macro_block.event_data
         action = macro_block.action or "press"
 
@@ -103,6 +103,10 @@ class MacroExecutor:
         try:
             if action == "press":
                 keyboard.press_and_release(normalized_key)
+            elif action == "down":
+                keyboard.press(normalized_key)
+            elif action == "up":
+                keyboard.release(normalized_key)
         except Exception:
             pass
 
@@ -182,9 +186,11 @@ class MacroExecutor:
         condition_met = self._evaluate_condition(macro_block)
 
         if condition_met and macro_block.macro_blocks:
-            # Recursively execute the nested macro blocks (실패해도 다음 블록들은 계속 실행)
+            # Recursively execute the nested macro blocks
             try:
-                self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, base_index)
+                result = self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, base_index)
+                if not result:
+                    return False  # EXIT 블록으로 인한 중지
             except Exception:
                 pass
 
@@ -233,9 +239,11 @@ class MacroExecutor:
                 else:
                     nested_base_index = 0
 
-                # 중첩된 블록들 실행 (실패해도 다음 블록들은 계속 실행)
+                # 중첩된 블록들 실행
                 try:
-                    self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                    result = self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                    if not result:
+                        return False  # EXIT 블록으로 인한 중지
                 except Exception:
                     pass
 
@@ -289,9 +297,11 @@ class MacroExecutor:
                             else:
                                 nested_base_index = 0
 
-                            # 조건 내부 블록 실행 (실패해도 다음 블록들은 계속 실행)
+                            # 조건 내부 블록 실행
                             try:
-                                self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                                result = self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                                if not result:
+                                    return False  # EXIT 블록으로 인한 중지
                             except Exception:
                                 pass
 
@@ -333,7 +343,11 @@ class MacroExecutor:
 
                 # 하위 조건 블록들 실행
                 try:
-                    self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                    result = self.execute_macro_blocks(macro_block.macro_blocks, flat_blocks, nested_base_index)
+                    if not result:
+                        # RGB 캐시 정리
+                        GlobalState.current_coordinate_rgb = None
+                        return False  # EXIT 블록으로 인한 중지
                 except Exception:
                     pass
 

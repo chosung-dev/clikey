@@ -17,7 +17,9 @@ class InputDialogs:
 
     def add_keyboard(self):
         key_window = tk.Toplevel(self.parent)
-        key_window.geometry("320x120+520+320")
+        key_window.title("키보드 입력")
+        key_window.geometry("400x280+540+320")
+        key_window.resizable(False, False)
 
         key_window.transient(self.parent)
         key_window.lift()
@@ -28,28 +30,70 @@ class InputDialogs:
         key_window.after(200, lambda: key_window.attributes("-topmost", False))
 
         frame = tk.Frame(key_window, bd=2, relief=tk.RAISED)
-        frame.pack(expand=True, fill="both")
+        frame.pack(expand=True, fill="both", padx=6, pady=6)
+        frame.focus_set()
 
-        tk.Label(frame, text="원하는 키를 눌러주세요", font=("맑은 고딕", 12)).pack(pady=20)
+        info = tk.Label(frame, text="원하는 키를 눌러주세요", justify="center", font=("맑은 고딕", 11))
+        info.pack(pady=4)
 
-        tk.Button(frame, text="취소", command=key_window.destroy).pack(pady=8)
+        key_var = tk.StringVar(value="현재 입력 키: -")
+        tk.Label(frame, textvariable=key_var, font=("맑은 고딕", 11)).pack(pady=4)
+
+        captured_key = {"key": None}
+
+        # 동작 타입 선택
+        action_var = tk.StringVar(value="press")
+        action_frame = tk.LabelFrame(frame, text="동작 타입", font=("맑은 고딕", 10))
+        action_frame.pack(pady=6, padx=10, fill="x")
+
+        tk.Radiobutton(action_frame, text="누르기", variable=action_var, value="press").grid(row=0, column=0, sticky="w", padx=5)
+        tk.Radiobutton(action_frame, text="누르고있기", variable=action_var, value="down").grid(row=0, column=1, sticky="w", padx=5)
+        tk.Radiobutton(action_frame, text="떼기", variable=action_var, value="up").grid(row=0, column=2, sticky="w", padx=5)
 
         def on_key(event):
             key = event.keysym
+            # ESC, Return, Tab 등 특수 키도 캡처
+            if key:
+                captured_key["key"] = key
+                key_var.set(f"현재 입력 키: {key}")
+
+        def add_item():
+            if captured_key["key"] is None:
+                messagebox.showwarning("안내", "먼저 키를 입력하세요.")
+                return
+
+            action = action_var.get()
+            key = captured_key["key"]
+
             macro_block = MacroFactory.create_keyboard_block(key)
+            macro_block.action = action
             self.insert_callback(macro_block)
-            key_window.destroy()
+            on_close()
 
-        key_window.bind("<Key>", on_key)
-        key_window.focus_set()
-
-        # X버튼 클릭 시에도 편집 모드 해제
-        def on_close_keyboard():
+        def on_close():
+            try:
+                key_window.grab_release()
+            except Exception:
+                pass
+            # 편집 모드 취소
             if self.cancel_edit_callback:
                 self.cancel_edit_callback()
             key_window.destroy()
 
-        key_window.protocol("WM_DELETE_WINDOW", on_close_keyboard)
+        key_window.bind("<Key>", on_key)
+        key_window.bind("<Control-Return>", lambda e: add_item())
+        key_window.bind("<Escape>", lambda e: on_close())
+
+        # X버튼 클릭 시에도 편집 모드 해제
+        key_window.protocol("WM_DELETE_WINDOW", on_close)
+
+        btns = tk.Frame(frame)
+        btns.pack(pady=10)
+
+        # 편집 모드에 따라 버튼 텍스트 결정
+        button_text = "수정 (Ctrl+Enter)" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가 (Ctrl+Enter)"
+        tk.Button(btns, text=button_text, width=16, command=add_item).pack(pady=5)
+        tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
 
     def add_mouse(self, selected_condition_block=None):
         mouse_win = tk.Toplevel(self.parent)
