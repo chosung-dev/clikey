@@ -13,11 +13,20 @@ from ui.magnifier import Magnifier
 
 
 class ConditionDialog:
-    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None], is_edit_mode_callback: Callable[[], bool] = None, cancel_edit_callback: Callable[[], None] = None):
+    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None], is_edit_mode_callback: Callable[[], bool] = None, cancel_edit_callback: Callable[[], None] = None, scale_factor: float = 1.0):
         self.parent = parent
         self.insert_callback = insert_callback
         self.is_edit_mode_callback = is_edit_mode_callback
         self.cancel_edit_callback = cancel_edit_callback
+
+        # 화면이 작을수록 창을 더 크게
+        if scale_factor < 0.8:
+            self.window_scale = 1.5
+        elif scale_factor < 1.0:
+            self.window_scale = 1.2
+        else:
+            self.window_scale = 1.0
+
         self.magnifier = None
         self.macro_list = None  # 매크로 리스트에 대한 참조를 저장
         self.edit_block = None  # 편집할 블록 저장
@@ -83,7 +92,9 @@ class ConditionDialog:
     def add_image_condition(self):
         win = tk.Toplevel(self.parent)
         win.title("색상 조건")
-        win.geometry("380x280+560+320")
+        w = int(380 * self.window_scale)
+        h = int(280 * self.window_scale)
+        win.geometry(f"{w}x{h}+560+320")
         win.resizable(False, False)
         win.transient(self.parent)
         win.lift()
@@ -271,7 +282,9 @@ class ConditionDialog:
     def add_image_match_condition(self):
         win = tk.Toplevel(self.parent)
         win.title("이미지 조건")
-        win.geometry("400x350+560+320")
+        w = int(400 * self.window_scale)
+        h = int(350 * self.window_scale)
+        win.geometry(f"{w}x{h}+560+320")
         win.resizable(False, False)
         win.transient(self.parent)
         win.lift()

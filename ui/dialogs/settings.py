@@ -6,14 +6,24 @@ from core.keyboard_hotkey import normalize_key_for_keyboard
 
 
 class SettingsDialog:
-    def __init__(self, parent: tk.Tk, settings: dict, hotkeys: dict, 
+    def __init__(self, parent: tk.Tk, settings: dict, hotkeys: dict,
                  mark_dirty_callback: Optional[Callable[[bool], None]] = None,
-                 register_hotkeys_callback: Optional[Callable[[], None]] = None):
+                 register_hotkeys_callback: Optional[Callable[[], None]] = None,
+                 scale_factor: float = 1.0):
         self.parent = parent
         self.settings = settings
         self.hotkeys = hotkeys
         self.mark_dirty_callback = mark_dirty_callback
         self.register_hotkeys_callback = register_hotkeys_callback
+
+        # 화면이 작을수록 창을 더 크게
+        if scale_factor < 0.8:
+            self.window_scale = 1.5
+        elif scale_factor < 1.0:
+            self.window_scale = 1.2
+        else:
+            self.window_scale = 1.0
+
         self.window = None
         
     def open_settings(self):
@@ -25,7 +35,9 @@ class SettingsDialog:
         win = tk.Toplevel(self.parent)
         self.window = win
         win.title("설정")
-        win.geometry("360x250+560+360")
+        w = int(360 * self.window_scale)
+        h = int(250 * self.window_scale)
+        win.geometry(f"{w}x{h}+560+360")
         win.resizable(False, False)
         win.transient(self.parent)
         win.lift()
@@ -110,7 +122,9 @@ class SettingsDialog:
     def _capture_hotkey(self, which: str):
         cap = tk.Toplevel(self.parent)
         cap.title("단축키 입력")
-        cap.geometry("260x110+600+400")
+        w = int(260 * self.window_scale)
+        h = int(110 * self.window_scale)
+        cap.geometry(f"{w}x{h}+600+400")
         cap.transient(self.window or self.parent)
         cap.lift()
         cap.grab_set()

@@ -26,7 +26,44 @@ class MacroUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Clikey")
-        self.root.geometry("500x450")
+
+        # 화면 해상도에 따른 스케일 팩터 계산
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # 기준 해상도 2560x1440
+        base_width = 2560
+        base_height = 1440
+
+        # 스케일 팩터 계산 (너비와 높이 중 작은 비율 사용)
+        scale_x = screen_width / base_width
+        scale_y = screen_height / base_height
+        self.scale_factor = min(scale_x, scale_y)
+
+        # 화면이 작을수록 창 크기를 더 크게 조정
+        # 예: 1920x1080 (75%) 화면에서는 창을 약 1.2배 더 크게
+        # 1366x768 (53%) 화면에서는 창을 약 1.5배 더 크게
+        if self.scale_factor < 0.8:
+            # 화면이 많이 작을 경우
+            window_scale = 1.5
+            font_scale = 0.75
+        elif self.scale_factor < 1.0:
+            # 화면이 조금 작을 경우
+            window_scale = 1.2
+            font_scale = 0.85
+        else:
+            # 기준 해상도 이상
+            window_scale = 1.0
+            font_scale = 1.0
+
+        # 윈도우 크기 조정
+        window_width = int(500 * window_scale)
+        window_height = int(450 * window_scale)
+        self.root.geometry(f"{window_width}x{window_height}")
+
+        # 폰트 크기 계산
+        self.base_font_size = max(7, int(9 * font_scale))
+        self.button_width = 18  # 버튼 너비는 고정
 
         # 윈도우 아이콘 설정
         try:
@@ -122,10 +159,17 @@ class MacroUI:
 
         self.settings_dialog = SettingsDialog(
             self.root, self.settings, self.hotkeys,
-            self._mark_dirty, self._register_hotkeys_if_available
+            self._mark_dirty, self._register_hotkeys_if_available,
+            self.scale_factor
         )
-        self.input_dialogs = InputDialogs(self.root, self._handle_macro_insert, self._is_edit_mode, self._cancel_edit_mode)
-        self.condition_dialog = ConditionDialog(self.root, self._handle_macro_insert, self._is_edit_mode, self._cancel_edit_mode)
+        self.input_dialogs = InputDialogs(
+            self.root, self._handle_macro_insert, self._is_edit_mode,
+            self._cancel_edit_mode, self.scale_factor
+        )
+        self.condition_dialog = ConditionDialog(
+            self.root, self._handle_macro_insert, self._is_edit_mode,
+            self._cancel_edit_mode, self.scale_factor
+        )
         self.condition_dialog.set_macro_list(self.macro_list)
 
         # 매크로 리스트에 편집 모드 콜백 설정
@@ -133,23 +177,50 @@ class MacroUI:
 
         # 실행/중지 버튼을 하단에 배치하기 위한 프레임
         bottom_frame = tk.Frame(right_frame)
-        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(16, 0))
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(int(16 * self.scale_factor), 0))
 
-        self.toggle_btn = tk.Button(bottom_frame, text="▶ 실행하기", width=18, command=self.toggle_execution)
-        self.toggle_btn.pack(pady=6)
+        self.toggle_btn = tk.Button(
+            bottom_frame,
+            text="▶ 실행하기",
+            width=self.button_width,
+            font=("맑은 고딕", self.base_font_size),
+            command=self.toggle_execution
+        )
+        self.toggle_btn.pack(pady=int(6 * self.scale_factor))
 
         # 나머지 버튼들을 위쪽에 배치하기 위한 프레임
         top_frame = tk.Frame(right_frame)
         top_frame.pack(side=tk.TOP, fill=tk.X)
 
-        tk.Button(top_frame, text="키보드", width=18, command=self.add_keyboard).pack(pady=6)
-        tk.Button(top_frame, text="마우스", width=18, command=self.add_mouse).pack(pady=6)
-        tk.Button(top_frame, text="딜레이", width=18, command=self.add_delay).pack(pady=6)
-        tk.Button(top_frame, text="중지", width=18, command=self.add_stop_macro).pack(pady=(6, 16))
-        tk.Button(top_frame, text="색상조건", width=18, command=self.add_image_condition).pack(pady=6)
-        tk.Button(top_frame, text="이미지조건", width=18, command=self.add_image_match_condition).pack(pady=6)
+        button_pady = int(6 * self.scale_factor)
+        button_font = ("맑은 고딕", self.base_font_size)
+
+        tk.Button(
+            top_frame, text="키보드", width=self.button_width,
+            font=button_font, command=self.add_keyboard
+        ).pack(pady=button_pady)
+        tk.Button(
+            top_frame, text="마우스", width=self.button_width,
+            font=button_font, command=self.add_mouse
+        ).pack(pady=button_pady)
+        tk.Button(
+            top_frame, text="딜레이", width=self.button_width,
+            font=button_font, command=self.add_delay
+        ).pack(pady=button_pady)
+        tk.Button(
+            top_frame, text="중지", width=self.button_width,
+            font=button_font, command=self.add_stop_macro
+        ).pack(pady=(button_pady, int(16 * self.scale_factor)))
+        tk.Button(
+            top_frame, text="색상조건", width=self.button_width,
+            font=button_font, command=self.add_image_condition
+        ).pack(pady=button_pady)
+        tk.Button(
+            top_frame, text="이미지조건", width=self.button_width,
+            font=button_font, command=self.add_image_match_condition
+        ).pack(pady=button_pady)
         # 추후 전문가 기능에 추가
-        # tk.Button(top_frame, text="좌표조건", width=18, command=self.add_coordinate_condition).pack(pady=6)
+        # tk.Button(top_frame, text="좌표조건", width=self.button_width, font=button_font, command=self.add_coordinate_condition).pack(pady=button_pady)
 
     def _bind_events(self):
         self.root.bind("<Control-s>", self._on_save)
@@ -216,8 +287,9 @@ class MacroUI:
 
             # 설정 다이얼로그를 새로운 설정으로 다시 생성
             self.settings_dialog = SettingsDialog(
-                self.root, self.settings, self.hotkeys, 
-                self._mark_dirty, self._register_hotkeys_if_available
+                self.root, self.settings, self.hotkeys,
+                self._mark_dirty, self._register_hotkeys_if_available,
+                self.scale_factor
             )
 
             return True
@@ -252,11 +324,12 @@ class MacroUI:
         self._register_hotkeys_if_available()
         self.current_path = None
         self._mark_dirty(False)
-        
+
         # 설정 다이얼로그를 새로운 설정으로 다시 생성
         self.settings_dialog = SettingsDialog(
-            self.root, self.settings, self.hotkeys, 
-            self._mark_dirty, self._register_hotkeys_if_available
+            self.root, self.settings, self.hotkeys,
+            self._mark_dirty, self._register_hotkeys_if_available,
+            self.scale_factor
         )
 
     def request_quit(self):

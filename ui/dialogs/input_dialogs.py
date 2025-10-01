@@ -9,16 +9,26 @@ from core.macro_factory import MacroFactory
 
 
 class InputDialogs:
-    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None], is_edit_mode_callback: Callable[[], bool] = None, cancel_edit_callback: Callable[[], None] = None):
+    def __init__(self, parent: tk.Tk, insert_callback: Callable[[MacroBlock], None], is_edit_mode_callback: Callable[[], bool] = None, cancel_edit_callback: Callable[[], None] = None, scale_factor: float = 1.0):
         self.parent = parent
         self.insert_callback = insert_callback
         self.is_edit_mode_callback = is_edit_mode_callback
         self.cancel_edit_callback = cancel_edit_callback
 
+        # 화면이 작을수록 창을 더 크게
+        if scale_factor < 0.8:
+            self.window_scale = 1.5
+        elif scale_factor < 1.0:
+            self.window_scale = 1.2
+        else:
+            self.window_scale = 1.0
+
     def add_keyboard(self):
         key_window = tk.Toplevel(self.parent)
         key_window.title("키보드 입력")
-        key_window.geometry("400x280+540+320")
+        w = int(400 * self.window_scale)
+        h = int(280 * self.window_scale)
+        key_window.geometry(f"{w}x{h}+540+320")
         key_window.resizable(False, False)
 
         key_window.transient(self.parent)
@@ -98,7 +108,9 @@ class InputDialogs:
     def add_mouse(self, selected_condition_block=None):
         mouse_win = tk.Toplevel(self.parent)
         mouse_win.title("마우스 입력")
-        mouse_win.geometry("400x380+540+320")
+        w = int(400 * self.window_scale)
+        h = int(380 * self.window_scale)
+        mouse_win.geometry(f"{w}x{h}+540+320")
         mouse_win.resizable(False, False)
 
         mouse_win.transient(self.parent)
@@ -300,7 +312,9 @@ class InputDialogs:
     def add_delay(self):
         delay_window = tk.Toplevel(self.parent)
         delay_window.title("딜레이 시간")
-        delay_window.geometry("300x150+540+320")
+        w = int(300 * self.window_scale)
+        h = int(150 * self.window_scale)
+        delay_window.geometry(f"{w}x{h}+540+320")
         delay_window.resizable(False, False)
 
         delay_window.transient(self.parent)
