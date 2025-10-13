@@ -1,5 +1,4 @@
 # 나만의 매크로 프로그램 Clikey
-![sample.png](sample.png)
 
 ------
 
