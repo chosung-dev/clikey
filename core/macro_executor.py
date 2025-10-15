@@ -122,20 +122,26 @@ class MacroExecutor:
         # Special key mappings from Tkinter/X11 to keyboard library
         key_mapping = {
             "Return": "enter",
-            "Escape": "esc", 
+            "Escape": "esc",
             "BackSpace": "backspace",
             "Tab": "tab",
             "space": "space",
             "Up": "up",
-            "Down": "down", 
+            "Down": "down",
             "Left": "left",
             "Right": "right",
             "Home": "home",
             "End": "end",
             "Prior": "page up",
-            "Next": "page down", 
+            "Next": "page down",
             "Insert": "insert",
             "Delete": "delete",
+            "Control_L": "ctrl",
+            "Control_R": "ctrl",
+            "Shift_L": "shift",
+            "Shift_R": "shift",
+            "Alt_L": "alt",
+            "Alt_R": "alt",
         }
         
         # Function keys (F1-F12)
