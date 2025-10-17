@@ -283,7 +283,7 @@ class ConditionDialog:
         win = tk.Toplevel(self.parent)
         win.title("이미지 조건")
         w = int(400 * self.window_scale)
-        h = int(350 * self.window_scale)
+        h = int(420 * self.window_scale)  # 높이 증가
         win.geometry(f"{w}x{h}+560+320")
         win.resizable(False, False)
         win.transient(self.parent)
@@ -298,8 +298,14 @@ class ConditionDialog:
         msg.pack(pady=10)
 
         selected_file = {"path": None}
+        selected_region = {"x1": None, "y1": None, "x2": None, "y2": None}
+
         file_label = tk.Label(frm, text="선택된 파일: 없음", fg="gray", wraplength=350, justify="left")
         file_label.pack(pady=5)
+
+        # 탐색 범위 표시 레이블
+        region_label = tk.Label(frm, text="탐색 범위: 전체 화면", fg="gray", wraplength=350, justify="left")
+        region_label.pack(pady=5)
 
         # 이미지 미리보기 프레임
         preview_frame = tk.Frame(frm)
@@ -310,6 +316,29 @@ class ConditionDialog:
         # 고정 크기 설정
         preview_frame.configure(width=280, height=150)
         preview_frame.pack_propagate(False)
+
+        # 편집 모드인 경우 기존 값 로드
+        if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
+            # 이미지 파일 로드
+            if self.edit_block.action:
+                selected_file["path"] = self.edit_block.action
+                filename = os.path.basename(self.edit_block.action)
+                file_label.config(text=f"선택된 파일: {filename}", fg="blue")
+                self.show_image_preview(self.edit_block.action, preview_label)
+
+            # 탐색 범위 로드
+            if self.edit_block.position:
+                try:
+                    parts = self.edit_block.position.split(",")
+                    if len(parts) == 4:
+                        x1, y1, x2, y2 = map(int, parts)
+                        selected_region.update({"x1": x1, "y1": y1, "x2": x2, "y2": y2})
+                        region_label.config(
+                            text=f"탐색 범위: ({x1}, {y1}) ~ ({x2}, {y2})",
+                            fg="blue"
+                        )
+                except (ValueError, AttributeError):
+                    pass
 
         def select_file():
             file_path = filedialog.askopenfilename(
@@ -386,6 +415,30 @@ class ConditionDialog:
                 messagebox.showerror("오류", f"클립보드 접근 중 오류 발생: {str(e)}")
 
 
+        def select_region():
+            """탐색 범위 선택"""
+            from ui.screen_region_selector import ScreenRegionSelector
+
+            def on_region_selected(x1, y1, x2, y2):
+                selected_region.update({"x1": x1, "y1": y1, "x2": x2, "y2": y2})
+                region_label.config(
+                    text=f"탐색 범위: ({x1}, {y1}) ~ ({x2}, {y2})",
+                    fg="blue"
+                )
+                # 윈도우 다시 활성화
+                win.deiconify()
+                win.lift()
+                win.grab_set()
+                win.focus_force()
+
+            # 현재 윈도우 숨기기
+            win.withdraw()
+            win.grab_release()
+
+            # 영역 선택 오버레이 표시
+            selector = ScreenRegionSelector(on_region_selected)
+            selector.show()
+
         def apply_block():
             if not selected_file["path"]:
                 messagebox.showwarning("안내", "먼저 이미지 파일을 선택하거나 클립보드에서 붙여넣으세요.")
@@ -393,6 +446,12 @@ class ConditionDialog:
 
             try:
                 macro_block = MacroFactory.create_image_match_block(selected_file["path"])
+
+                # 탐색 범위가 설정된 경우 position에 저장
+                if selected_region["x1"] is not None:
+                    x1, y1 = selected_region["x1"], selected_region["y1"]
+                    x2, y2 = selected_region["x2"], selected_region["y2"]
+                    macro_block.position = f"{x1},{y1},{x2},{y2}"
 
                 # 편집 모드인 경우 기존 블록의 macro_blocks 보존
                 if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
@@ -422,13 +481,14 @@ class ConditionDialog:
         btn_frame = tk.Frame(frm)
         btn_frame.pack(pady=15)
 
-        tk.Button(btn_frame, text="파일 선택", command=select_file, width=29).grid(row=0, column=0, columnspan=2, padx=5)
+        tk.Button(btn_frame, text="파일 선택", command=select_file, width=29).grid(row=0, column=0, columnspan=2, padx=5, pady=2)
+        tk.Button(btn_frame, text="탐색 범위 추가", command=select_region, width=29).grid(row=1, column=0, columnspan=2, padx=5, pady=2)
 
         # 편집 모드에 따라 버튼 텍스트 결정
         button_text = "수정" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가"
 
-        tk.Button(btn_frame, text=button_text, command=apply_block, width=12).grid(row=1, column=0, padx=5, pady=5)
-        tk.Button(btn_frame, text="취소", command=on_close, width=12).grid(row=1, column=1, padx=5, pady=5)
+        tk.Button(btn_frame, text=button_text, command=apply_block, width=12).grid(row=2, column=0, padx=5, pady=5)
+        tk.Button(btn_frame, text="취소", command=on_close, width=12).grid(row=2, column=1, padx=5, pady=5)
 
         win.bind("<Escape>", lambda e: on_close())
         win.bind("<Control-v>", on_paste_key)

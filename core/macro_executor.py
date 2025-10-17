@@ -228,7 +228,19 @@ class MacroExecutor:
             return True
 
         template_path = macro_block.action
-        result = ImageMatcher.find_image_on_screen(template_path)
+
+        # position에서 검색 영역 파싱 (x1,y1,x2,y2 형식)
+        search_region = None
+        if macro_block.position:
+            try:
+                parts = macro_block.position.split(",")
+                if len(parts) == 4:
+                    x1, y1, x2, y2 = map(int, parts)
+                    search_region = (x1, y1, x2, y2)
+            except (ValueError, AttributeError):
+                pass
+
+        result = ImageMatcher.find_image_on_screen(template_path, search_region=search_region)
 
         if result:
             # 이미지를 찾은 경우, 좌표 정보를 전역 상태에 저장
