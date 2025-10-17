@@ -52,8 +52,9 @@ class MacroUI:
             window_scale = 1.2
             font_scale = 0.85
         else:
-            # 기준 해상도 이상
-            window_scale = 1.0
+            # 기준 해상도 이상 (예: 3200x1800, 3840x2160)
+            # 너무 크지 않도록 최대 1.3배로 제한
+            window_scale = self.scale_factor
             font_scale = 1.0
 
         # 윈도우 크기 조정

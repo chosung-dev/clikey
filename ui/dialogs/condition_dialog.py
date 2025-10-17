@@ -25,7 +25,7 @@ class ConditionDialog:
         elif scale_factor < 1.0:
             self.window_scale = 1.2
         else:
-            self.window_scale = 1.0
+            self.window_scale = scale_factor
 
         self.magnifier = None
         self.macro_list = None  # 매크로 리스트에 대한 참조를 저장

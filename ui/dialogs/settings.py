@@ -22,7 +22,7 @@ class SettingsDialog:
         elif scale_factor < 1.0:
             self.window_scale = 1.2
         else:
-            self.window_scale = 1.0
+            self.window_scale = scale_factor
 
         self.window = None
         
