@@ -9,13 +9,14 @@ pillow==11.3.0
 PyAutoGUI==0.9.54
 PyAutoIt==0.6.5
 PyGetWindow==0.0.9
-pyinstaller==6.15.0
+pyinstaller==6.16.0
 pyinstaller-hooks-contrib==2025.8
 PyMsgBox==1.0.9
 pyperclip==1.9.0
 PyRect==0.2.0
 PyScreeze==1.0.1
 pytweening==1.2.0
+pywin32==311
 pywin32-ctypes==0.2.3
 sc-pylibs==0.0.0.1
 setuptools==80.9.0

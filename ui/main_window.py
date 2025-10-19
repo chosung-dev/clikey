@@ -3,7 +3,6 @@ import sys
 import json
 import tkinter as tk
 from tkinter import messagebox, filedialog
-import pyautogui
 
 from core.state import default_settings, default_hotkeys
 from core.keyboard_hotkey import register_hotkeys
@@ -16,10 +15,6 @@ from ui.execution.highlighter import MacroHighlighter
 from ui.dialogs.settings import SettingsDialog
 from ui.dialogs.input_dialogs import InputDialogs
 from ui.dialogs.condition_dialog import ConditionDialog
-
-
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.02
 
 
 class MacroUI:

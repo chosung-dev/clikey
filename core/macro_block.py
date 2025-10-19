@@ -20,11 +20,9 @@ class MacroBlock:
 
     @staticmethod
     def _generate_key() -> str:
-        """Generate a unique key using UUID4."""
         return str(uuid.uuid4())[:12]
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert MacroBlock to dictionary for JSON serialization."""
         result = {
             "event_type": self.event_type.value,
             "event_data": self.event_data,
@@ -44,18 +42,9 @@ class MacroBlock:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> MacroBlock:
-        """Create MacroBlock from dictionary (JSON deserialization)."""
         event_type = EventType(data["event_type"])
-
-        condition_type = None
-        if "condition_type" in data and data["condition_type"]:
-            condition_type = ConditionType(data["condition_type"])
-
-        macro_blocks = []
-        if "macro_blocks" in data and data["macro_blocks"]:
-            macro_blocks = [cls.from_dict(block_data) for block_data in data["macro_blocks"]]
-
-        # Use existing key if available, otherwise generate new one
+        condition_type = ConditionType(data["condition_type"]) if data.get("condition_type") else None
+        macro_blocks = [cls.from_dict(block_data) for block_data in data.get("macro_blocks", [])]
         key = data.get("key", cls._generate_key())
 
         return cls(
@@ -70,17 +59,13 @@ class MacroBlock:
         )
 
     def to_json(self) -> str:
-        """Convert MacroBlock to JSON string."""
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
 
     @classmethod
     def from_json(cls, json_str: str) -> MacroBlock:
-        """Create MacroBlock from JSON string."""
-        data = json.loads(json_str)
-        return cls.from_dict(data)
+        return cls.from_dict(json.loads(json_str))
 
     def get_display_text(self) -> str:
-        """Get display text for UI list."""
         if self.event_type == EventType.KEYBOARD:
             action_text = {"press": "누르기", "down": "누르고있기", "up": "떼기"}.get(self.action, self.action)
             return f"⌨️ 키보드 {self.event_data} ({action_text})"
@@ -109,7 +94,6 @@ class MacroBlock:
             return f"❓ {self.event_type.value}: {self.event_data}"
 
     def parse_position(self) -> Optional[tuple[int, int]]:
-        """Parse position string to (x, y) tuple."""
         if not self.position:
             return None
         try:
@@ -119,24 +103,17 @@ class MacroBlock:
             return None
 
     def has_reference_position(self) -> bool:
-        """Check if this block has a reference position (like @parent)."""
         if not self.position:
             return False
-        # 새로운 방식: @parent 또는 기존 방식: image_name.x, image_name.y
         return (self.position.strip() == "@parent" or
                 ("." in self.position and any(coord in self.position for coord in [".x", ".y"])))
 
     def clear_reference_position(self):
-        """Clear reference position and set to 0,0 if it was a reference."""
         if self.has_reference_position():
             self.position = "0,0"
 
-
-
     def copy(self) -> 'MacroBlock':
-        """Create a copy of this MacroBlock with a new key."""
         copied_nested_blocks = [block.copy() for block in self.macro_blocks]
-
         return MacroBlock(
             event_type=self.event_type,
             event_data=self.event_data,
@@ -144,6 +121,6 @@ class MacroBlock:
             position=self.position,
             description=self.description,
             macro_blocks=copied_nested_blocks,
-            key=MacroBlock._generate_key(),  # Generate new key
+            key=MacroBlock._generate_key(),
             condition_type=self.condition_type
         )

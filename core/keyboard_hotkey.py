@@ -3,12 +3,15 @@ from __future__ import annotations
 from typing import Optional
 import keyboard
 
+
 def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
+    """Normalize key name from Tkinter/X11 format to keyboard library format."""
     if not keysym:
         return None
-    k = keysym
-    if len(k) == 1:
-        return k.lower()
+
+    if len(keysym) == 1:
+        return keysym.lower()
+
     mapping = {
         "Return": "enter",
         "Escape": "esc",
@@ -25,23 +28,30 @@ def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
         "Next": "page down",
         "Insert": "insert",
         "Delete": "delete",
+        "Control_L": "ctrl",
+        "Control_R": "ctrl",
+        "Shift_L": "shift",
+        "Shift_R": "shift",
+        "Alt_L": "alt",
+        "Alt_R": "alt",
     }
-    if k.startswith("F") and k[1:].isdigit():
-        return k.lower()
-    return mapping.get(k, None)
+
+    if keysym.startswith("F") and keysym[1:].isdigit():
+        return keysym.lower()
+
+    return mapping.get(keysym, keysym.lower())
 
 def register_hotkeys(root, ui) -> None:
-    # remove existing
-    for k in ("start", "stop"):
-        h = ui.hotkey_handles.get(k)
-        if h is not None:
+    """Register or update global hotkeys for start/stop."""
+    for key in ("start", "stop"):
+        handle = ui.hotkey_handles.get(key)
+        if handle is not None:
             try:
-                keyboard.remove_hotkey(h)
+                keyboard.remove_hotkey(handle)
             except Exception:
                 pass
-            ui.hotkey_handles[k] = None
+            ui.hotkey_handles[key] = None
 
-    # add new
     if ui.hotkeys.get("start"):
         ui.hotkey_handles["start"] = keyboard.add_hotkey(
             ui.hotkeys["start"], lambda: root.after(0, ui.run_macros)
