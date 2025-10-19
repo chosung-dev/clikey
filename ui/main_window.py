@@ -550,6 +550,10 @@ class MacroUI:
     def _finish_edit_mode(self, new_block):
         """편집 모드 완료 - 기존 블록을 새 블록으로 교체"""
         if self.edit_mode["enabled"] and self.edit_mode["block"] and self.edit_mode["index"] is not None:
+            # 기존 블록의 설명을 새 블록에 복사
+            if self.edit_mode["block"].description:
+                new_block.description = self.edit_mode["block"].description
+
             # 블록 교체
             self.macro_list._replace_block(self.edit_mode["block"], new_block, self.edit_mode["index"])
 
