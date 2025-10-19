@@ -123,6 +123,7 @@ class MacroUI:
         edit_menu.add_command(label="붙여넣기", accelerator="Ctrl+V", command=self._on_paste)
         edit_menu.add_separator()
         edit_menu.add_command(label="설명 추가", accelerator="/", command=self.add_description)
+        edit_menu.add_command(label="조건 밖으로", accelerator="Shift+Tab", command=self.move_outside)
         edit_menu.add_command(label="삭제", accelerator="Delete", command=self.delete_macro)
         menubar.add_cascade(label="편집", menu=edit_menu)
 
@@ -442,6 +443,11 @@ class MacroUI:
             self.macro_list.macro_listbox.activate(new_index)
             self.macro_list.macro_listbox.see(new_index)
             self.macro_list.selected_indices = [new_index]
+
+    def move_outside(self):
+        """선택된 블록을 조건 밖으로 이동"""
+        if self.macro_list:
+            self.macro_list.move_selected_blocks_outside()
 
     # ---------- 실행/중지 ----------
     def toggle_execution(self):

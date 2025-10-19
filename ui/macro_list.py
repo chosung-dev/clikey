@@ -79,6 +79,9 @@ class MacroListManager:
         self.macro_listbox.bind('<Shift-Up>', self._on_shift_up_arrow)
         self.macro_listbox.bind('<Shift-Down>', self._on_shift_down_arrow)
 
+        # Bind Shift+Tab for moving block outside of condition
+        self.macro_listbox.bind('<Shift-Tab>', self._on_move_outside)
+
         # Make listbox focusable
         self.macro_listbox.config(takefocus=True)
 
@@ -748,3 +751,133 @@ class MacroListManager:
 
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)
+
+    def _on_move_outside(self, event):
+        """Handle Shift+Tab to move selected block outside of condition."""
+        self.move_selected_blocks_outside()
+        return "break"
+
+    def move_selected_blocks_outside(self):
+        """Move selected blocks outside of their immediate parent condition (one level up)."""
+        if not self.selected_indices:
+            return
+
+        self._save_state_for_undo()
+
+        # 선택된 블록들 중에서 조건 안에 있는 블록만 처리
+        blocks_to_move = []
+        for idx in sorted(self.selected_indices, reverse=True):
+            if idx >= len(self.flat_blocks):
+                continue
+
+            block, depth = self.flat_blocks[idx]
+
+            # depth가 0이면 이미 최상위 레벨이므로 이동 불가
+            if depth == 0:
+                continue
+
+            # 직계 부모 블록 찾기
+            parent_block = self._find_parent_block(idx, block)
+            if not parent_block:
+                continue
+
+            blocks_to_move.append((block, parent_block, depth))
+
+        if not blocks_to_move:
+            return
+
+        # 블록들을 한 단계 밖으로 이동
+        for block, parent_block, depth in blocks_to_move:
+            # 부모의 macro_blocks에서 해당 블록 제거
+            if block in parent_block.macro_blocks:
+                parent_block.macro_blocks.remove(block)
+
+            # depth가 1이면 최상위로 이동
+            if depth == 1:
+                # 부모 블록의 루트 레벨 위치 찾기
+                parent_root_idx = self._find_root_index(parent_block)
+                if parent_root_idx is not None:
+                    # 부모 블록 바로 다음에 삽입
+                    self.macro_blocks.insert(parent_root_idx + 1, block)
+            else:
+                # depth > 1이면 조부모 블록을 찾아서 그 안에 삽입
+                grandparent_block = self._find_grandparent_block(parent_block)
+                if grandparent_block and hasattr(grandparent_block, 'macro_blocks'):
+                    # 부모 블록 바로 다음 위치에 삽입
+                    try:
+                        parent_idx = grandparent_block.macro_blocks.index(parent_block)
+                        grandparent_block.macro_blocks.insert(parent_idx + 1, block)
+                    except ValueError:
+                        # 부모를 찾지 못한 경우 마지막에 추가
+                        grandparent_block.macro_blocks.append(block)
+
+        # 화면 업데이트
+        self._rebuild_flat_list()
+        self._refresh_display()
+        self._update_global_state()
+
+        # 첫 번째 이동된 블록 선택
+        if blocks_to_move:
+            first_moved_block = blocks_to_move[0][0]
+            self._select_newly_added_block(first_moved_block)
+
+        if self.mark_dirty_callback:
+            self.mark_dirty_callback(True)
+
+    def _find_grandparent_block(self, parent_block: MacroBlock) -> Optional[MacroBlock]:
+        """Find the grandparent block (parent of the parent block)."""
+        # 루트 레벨에서 부모의 부모 찾기
+        for root_block in self.macro_blocks:
+            if root_block is parent_block:
+                return None  # 부모가 루트 레벨이면 조부모 없음
+
+            if hasattr(root_block, 'macro_blocks'):
+                # 직접 자식인지 확인
+                if parent_block in root_block.macro_blocks:
+                    return root_block
+
+                # 재귀적으로 자손 중에서 찾기
+                grandparent = self._find_grandparent_recursive(parent_block, root_block)
+                if grandparent:
+                    return grandparent
+
+        return None
+
+    def _find_grandparent_recursive(self, target_parent: MacroBlock, current: MacroBlock) -> Optional[MacroBlock]:
+        """Recursively find the grandparent of target_parent."""
+        if not hasattr(current, 'macro_blocks'):
+            return None
+
+        for child in current.macro_blocks:
+            if child is target_parent:
+                return current
+
+            if hasattr(child, 'macro_blocks'):
+                result = self._find_grandparent_recursive(target_parent, child)
+                if result:
+                    return result
+
+        return None
+
+    def _find_root_index(self, target_block: MacroBlock) -> Optional[int]:
+        """Find the index of a block in the root macro_blocks list."""
+        for i, block in enumerate(self.macro_blocks):
+            if block is target_block:
+                return i
+            # 재귀적으로 검색
+            if hasattr(block, 'macro_blocks') and block.macro_blocks:
+                if self._is_block_in_children(target_block, block):
+                    return i
+        return None
+
+    def _is_block_in_children(self, target_block: MacroBlock, parent: MacroBlock) -> bool:
+        """Check if target_block is a child of parent."""
+        if not hasattr(parent, 'macro_blocks'):
+            return False
+
+        for child in parent.macro_blocks:
+            if child is target_block:
+                return True
+            if hasattr(child, 'macro_blocks') and self._is_block_in_children(target_block, child):
+                return True
+        return False
