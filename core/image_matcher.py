@@ -70,8 +70,14 @@ class ImageMatcher:
                 # 오프셋을 더해 전체 화면 기준 좌표로 변환
                 center_x = max_loc[0] + template_w // 2 + offset_x
                 center_y = max_loc[1] + template_h // 2 + offset_y
+
+                # 메모리 누수 방지: 명시적으로 큰 객체들 해제
+                del screenshot, screenshot_np, screenshot_bgr, template, result
+
                 return (center_x, center_y)
 
+            # 메모리 누수 방지: 명시적으로 큰 객체들 해제
+            del screenshot, screenshot_np, screenshot_bgr, template, result
             return None
 
         except Exception:

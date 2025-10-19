@@ -249,6 +249,12 @@ class MacroExecutor:
             if not hasattr(GlobalState, 'image_match_results'):
                 GlobalState.image_match_results = {}
 
+            # 메모리 누수 방지: 딕셔너리 크기 제한 (최대 100개 항목 유지)
+            if len(GlobalState.image_match_results) > 100:
+                # 오래된 항목부터 삭제 (FIFO 방식)
+                oldest_key = next(iter(GlobalState.image_match_results))
+                del GlobalState.image_match_results[oldest_key]
+
             GlobalState.image_match_results[macro_block.event_data] = context_data
 
             if macro_block.macro_blocks:
