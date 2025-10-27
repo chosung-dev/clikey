@@ -10,6 +10,8 @@ hidden = [
     "pyautogui",
     "PIL.ImageGrab",
     "autoit",
+    "mss",
+    "mss.windows",
 ]
 # 일부 패키지의 지연 import 대비
 hidden += collect_submodules("pyautogui")

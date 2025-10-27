@@ -272,6 +272,9 @@ class MacroListManager:
 
     def _refresh_display(self):
         """Refresh the listbox display with indented text."""
+        # Save current scroll position
+        yview = self.macro_listbox.yview()
+
         self.macro_listbox.delete(0, tk.END)
 
         for block, depth in self.flat_blocks:
@@ -280,6 +283,9 @@ class MacroListManager:
             if block.description:
                 display_text = self._join_raw_desc(display_text, block.description)
             self.macro_listbox.insert(tk.END, display_text)
+
+        # Restore scroll position
+        self.macro_listbox.yview_moveto(yview[0])
 
     def _find_root_block(self, flat_index: int) -> MacroBlock:
         """Find the root block for a given flat index."""
@@ -413,9 +419,12 @@ class MacroListManager:
         self._save_state_for_undo()
         sel = self.get_selected_indices()
 
+        # Store references to the pasted blocks for later selection
+        pasted_blocks = []
+
         if sel:
-            # Use the first selected index as the base insertion point
-            selected_idx = sel[0]
+            # Use the last selected index as the base insertion point
+            selected_idx = max(sel)
             selected_block, selected_depth = self.flat_blocks[selected_idx]
 
             # Determine the insertion location
@@ -448,6 +457,7 @@ class MacroListManager:
                 is_image_match_copy = self._is_image_match_block(copied_block)
                 self._clear_reference_positions_if_needed(copied_block, parent_block, is_image_match_copy)
                 insert_list.insert(insert_position + i, copied_block)
+                pasted_blocks.append(copied_block)
 
         else:
             for block in self.clipboard:
@@ -455,42 +465,22 @@ class MacroListManager:
                 is_image_match_copy = self._is_image_match_block(copied_block)
                 self._clear_reference_positions_if_needed(copied_block, None, is_image_match_copy)
                 self.macro_blocks.append(copied_block)
-        
+                pasted_blocks.append(copied_block)
+
         self._rebuild_flat_list()
         self._refresh_display()
 
-        # Select the newly pasted blocks
-        if sel and self.clipboard:
-            # Calculate where the pasted blocks should appear in the flat list
-            original_selected_idx = sel[0]
+        # Select the pasted blocks
+        if pasted_blocks:
+            pasted_indices = []
+            for i, (block, _) in enumerate(self.flat_blocks):
+                if block in pasted_blocks:
+                    pasted_indices.append(i)
 
-            # Rebuild flat list to get updated positions
-            if original_selected_idx < len(self.flat_blocks):
-                # Try to find the new position of pasted blocks
-                # They should be right after the original selected position
-                paste_start_idx = original_selected_idx + 1
-                paste_end_idx = paste_start_idx + len(self.clipboard) - 1
-
-                # Ensure we don't go beyond the list bounds
-                if paste_start_idx < len(self.flat_blocks):
-                    paste_end_idx = min(paste_end_idx, len(self.flat_blocks) - 1)
-                    self.selected_indices = list(range(paste_start_idx, paste_end_idx + 1))
-                    self.last_selected_index = paste_start_idx
-                    self._update_selection_display()
-                    self.macro_listbox.see(paste_start_idx)
-                    self.macro_listbox.focus_set()
-        elif self.clipboard:
-            # No selection, items were added to the end - select the pasted blocks
-            total_blocks = len(self.flat_blocks)
-            clipboard_size = len(self.clipboard)
-            paste_start_idx = total_blocks - clipboard_size
-            paste_end_idx = total_blocks - 1
-
-            if paste_start_idx >= 0:
-                self.selected_indices = list(range(paste_start_idx, paste_end_idx + 1))
-                self.last_selected_index = paste_start_idx
+            if pasted_indices:
+                self.selected_indices = pasted_indices
+                self.last_selected_index = pasted_indices[0]
                 self._update_selection_display()
-                self.macro_listbox.see(paste_start_idx)
                 self.macro_listbox.focus_set()
 
         # Mark as dirty
@@ -695,7 +685,6 @@ class MacroListManager:
                 self.selected_indices = [i]
                 self.last_selected_index = i
                 self._update_selection_display()
-                self.macro_listbox.see(i)
                 self.macro_listbox.focus_set()
                 break
 
