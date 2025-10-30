@@ -16,3 +16,4 @@ def default_hotkeys():
 class GlobalState:
     current_macro = None
     image_match_results = {}
+    image_match_stack = []  # Stack to track parent-child relationships of image conditions

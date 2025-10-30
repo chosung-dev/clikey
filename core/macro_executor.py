@@ -153,7 +153,18 @@ class MacroExecutor:
 
         if result:
             self._store_image_match_result(macro_block.action, result, macro_block.event_data)
-            return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
+
+            # Push current image match to stack before executing nested blocks
+            if not hasattr(GlobalState, 'image_match_stack'):
+                GlobalState.image_match_stack = []
+            GlobalState.image_match_stack.append(macro_block.event_data)
+
+            try:
+                return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
+            finally:
+                # Pop from stack after nested blocks complete
+                if GlobalState.image_match_stack:
+                    GlobalState.image_match_stack.pop()
 
         return True
 
@@ -280,10 +291,18 @@ class MacroExecutor:
         return GlobalState.image_match_results[ref_name].get(coord_type) if ref_name in GlobalState.image_match_results else None
 
     def _get_parent_image_coordinates(self) -> tuple[Optional[int], Optional[int]]:
+        # Use stack-based approach to get the direct parent's coordinates
+        if not hasattr(GlobalState, 'image_match_stack') or not GlobalState.image_match_stack:
+            return None, None
+
         if not hasattr(GlobalState, 'image_match_results') or not GlobalState.image_match_results:
             return None, None
 
-        for context_data in reversed(list(GlobalState.image_match_results.values())):
+        # Get the most recent parent from stack (last item)
+        parent_name = GlobalState.image_match_stack[-1]
+
+        if parent_name in GlobalState.image_match_results:
+            context_data = GlobalState.image_match_results[parent_name]
             x, y = context_data.get("x"), context_data.get("y")
             if x is not None and y is not None:
                 return x, y

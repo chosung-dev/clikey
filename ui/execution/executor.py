@@ -5,6 +5,7 @@ from typing import Callable, Optional, List
 
 from core.macro_executor import MacroExecutor as CoreMacroExecutor
 from core.macro_block import MacroBlock
+from core.state import GlobalState
 
 
 class MacroExecutor:
@@ -75,14 +76,18 @@ class MacroExecutor:
             self.core_executor.step_delay = step_delay
 
             while (loop_inf or loops < repeat) and not self.stop_flag:
+                # Clear image match state at the start of each cycle
+                GlobalState.image_match_results = {}
+                GlobalState.image_match_stack = []
+
                 # Execute macro blocks using core executor with flat blocks for highlighting
                 if not self.core_executor.execute_macro_blocks(macro_blocks, self.current_flat_blocks):
                     break  # Execution was stopped or failed
-                
+
                 if self.stop_flag:
                     break
                 loops += 1
-                
+
                 # Add step delay between loops
                 if step_delay > 0 and not self.stop_flag and (loop_inf or loops < repeat):
                     self._sleep(step_delay)
