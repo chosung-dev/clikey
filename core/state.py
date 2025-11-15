@@ -10,7 +10,7 @@ def default_settings():
 
 
 def default_hotkeys():
-    return {"start": "F8", "stop": "F9"}
+    return {"start": "f8", "stop": "f9"}
 
 
 class GlobalState:
