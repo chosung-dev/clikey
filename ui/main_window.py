@@ -225,6 +225,11 @@ class MacroUI:
         self.root.bind("<Control-x>", self._on_cut)
         self.root.bind("<Control-v>", self._on_paste)
         self.root.bind("<Control-z>", self._on_undo)
+        self.root.bind("<Control-S>", self._on_save)
+        self.root.bind("<Control-C>", self._on_copy)
+        self.root.bind("<Control-X>", self._on_cut)
+        self.root.bind("<Control-V>", self._on_paste)
+        self.root.bind("<Control-Z>", self._on_undo)
         self.root.bind("<KeyPress-slash>", self._on_add_description)
 
     def _register_hotkeys_if_available(self):

@@ -60,18 +60,18 @@ class MacroListManager:
         self.macro_listbox.bind('<Control-c>', self._on_copy)
         self.macro_listbox.bind('<Control-x>', self._on_cut)
         self.macro_listbox.bind('<Control-v>', self._on_paste)
-        
-        # Bind undo key
         self.macro_listbox.bind('<Control-z>', self._on_undo)
-
-        # Bind save key
         self.macro_listbox.bind('<Control-s>', self._on_save)
+        self.macro_listbox.bind('<Control-a>', self._on_select_all)
+        self.macro_listbox.bind('<Control-C>', self._on_copy)
+        self.macro_listbox.bind('<Control-X>', self._on_cut)
+        self.macro_listbox.bind('<Control-V>', self._on_paste)
+        self.macro_listbox.bind('<Control-Z>', self._on_undo)
+        self.macro_listbox.bind('<Control-S>', self._on_save)
+        self.macro_listbox.bind('<Control-A>', self._on_select_all)
 
         # Bind double-click for editing
         self.macro_listbox.bind('<Double-Button-1>', self._on_double_click)
-
-        # Bind select all key
-        self.macro_listbox.bind('<Control-a>', self._on_select_all)
 
         # Bind arrow keys for navigation
         self.macro_listbox.bind('<Up>', self._on_up_arrow)
