@@ -61,8 +61,8 @@ class SettingsDialog:
         self.step_delay_var = tk.StringVar(value=str(int(step_delay_val)) if step_delay_val.is_integer() else str(step_delay_val))
         tk.Entry(frm, width=8, textvariable=self.step_delay_var).grid(row=2, column=1, sticky="w", padx=8, pady=(8, 0))
 
-        self.start_key_var = tk.StringVar(value=self.hotkeys.get("start") or "")
-        self.stop_key_var = tk.StringVar(value=self.hotkeys.get("stop") or "")
+        self.start_key_var = tk.StringVar(value=(self.hotkeys.get("start") or "").upper())
+        self.stop_key_var = tk.StringVar(value=(self.hotkeys.get("stop") or "").upper())
 
         row = 3
 
@@ -147,10 +147,10 @@ class SettingsDialog:
                 messagebox.showwarning("지원하지 않는 키", f"이 키는 전역 단축키로 설정하기 어렵습니다: {keysym}")
                 return
             if which == "start":
-                self.start_key_var.set(keysym)
+                self.start_key_var.set(keysym.upper())
                 self.hotkeys["start"] = key_for_keyboard
             else:
-                self.stop_key_var.set(keysym)
+                self.stop_key_var.set(keysym.upper())
                 self.hotkeys["stop"] = key_for_keyboard
                 
             if self.mark_dirty_callback:
