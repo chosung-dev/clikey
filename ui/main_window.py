@@ -137,7 +137,7 @@ class MacroUI:
         main_frame = tk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        right_frame = tk.Frame(main_frame, bd=2, relief=tk.GROOVE)
+        right_frame = tk.Frame(main_frame)
         right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=8, pady=8)
 
         left_frame = tk.Frame(main_frame, bd=2, relief=tk.SUNKEN)

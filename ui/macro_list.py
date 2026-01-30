@@ -359,6 +359,48 @@ class MacroListManager:
                 self.macro_blocks.append(macro_block)
 
 
+    def _copy_blocks_for_clipboard(self, selected_blocks: List[MacroBlock]) -> List[MacroBlock]:
+        """Copy blocks for clipboard, excluding blocks whose ancestors are also selected.
+
+        When an IF block is selected, all its children are included automatically,
+        so any selected children are filtered out to avoid duplication.
+        """
+        if not selected_blocks:
+            return []
+
+        selected_keys = {block.key for block in selected_blocks}
+        result = []
+
+        for block in selected_blocks:
+            # Find this block's index in flat_blocks
+            block_idx = None
+            for i, (fb, _) in enumerate(self.flat_blocks):
+                if fb is block:
+                    block_idx = i
+                    break
+
+            if block_idx is None:
+                continue
+
+            # Check if any ancestor is also selected
+            has_selected_ancestor = False
+            current_depth = self.flat_blocks[block_idx][1]
+
+            for i in range(block_idx - 1, -1, -1):
+                ancestor, depth = self.flat_blocks[i]
+                if depth < current_depth:
+                    if ancestor.key in selected_keys:
+                        has_selected_ancestor = True
+                        break
+                    current_depth = depth
+                if depth == 0:
+                    break
+
+            if not has_selected_ancestor:
+                result.append(block.copy())
+
+        return result
+
     def _find_parent_block(self, selected_idx: int, selected_block: MacroBlock) -> Optional[MacroBlock]:
         """Find the parent block of the selected block."""
         if selected_idx <= 0:
@@ -396,7 +438,7 @@ class MacroListManager:
 
         selected_blocks = self.get_selected_macro_blocks()
         if selected_blocks:
-            self.clipboard = [block.copy() for block in selected_blocks]
+            self.clipboard = self._copy_blocks_for_clipboard(selected_blocks)
         return "break"
 
     def _on_cut(self, event):
@@ -407,7 +449,7 @@ class MacroListManager:
         selected_blocks = self.get_selected_macro_blocks()
         if selected_blocks:
             self._save_state_for_undo()
-            self.clipboard = [block.copy() for block in selected_blocks]
+            self.clipboard = self._copy_blocks_for_clipboard(selected_blocks)
             self.delete_selected()
         return "break"
 

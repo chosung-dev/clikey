@@ -81,13 +81,13 @@ class MacroBlock:
                 position_display = self.position
                 if self.position and self.position.strip() == "@parent":
                     position_display = "상위좌표"
-                return f"[조건] 색상 매치 {position_display}"
+                return f"🔻 색상 매치 {position_display}"
             elif self.condition_type == ConditionType.IMAGE_MATCH:
-                return f"[조건] 이미지 매치 @{self.event_data}"
+                return f"🔻 이미지 매치 @{self.event_data}"
             elif self.condition_type == ConditionType.COORDINATE_CONDITION:
-                return f"[조건] 좌표 조건 @{self.position}"
+                return f"🔻 좌표 조건 @{self.position}"
             else:
-                return f"[조건] {self.event_data} @{self.position}"
+                return f"🔻 {self.event_data} @{self.position}"
         elif self.event_type == EventType.EXIT:
             return f"⏹️ 매크로 중지"
         else:
