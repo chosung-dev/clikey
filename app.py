@@ -5,6 +5,9 @@ import tkinter as tk
 from tkinter import messagebox
 import webbrowser
 
+# 시작 시간 측정
+_startup_time = time.perf_counter()
+
 try:
     import ctypes
     import platform
@@ -14,7 +17,7 @@ except Exception:
     pass
 
 from ui.main_window import MacroUI
-from core.keyboard_hotkey import keyboard
+from core.keyboard_hotkey import _get_keyboard
 from utils.admin_utils import request_admin_if_needed
 from core.version import __version__, get_latest_version, get_release_url, is_update_available
 from core.persistence import load_app_state, save_app_state
@@ -57,13 +60,12 @@ def main():
     threading.Thread(target=check_update, daemon=True).start()
 
     def cleanup_hotkeys():
-        if keyboard is None:
-            return
+        kb = _get_keyboard()
         for k in ("start", "stop"):
             h = ui.hotkey_handles.get(k)
             if h is not None:
                 try:
-                    keyboard.remove_hotkey(h)
+                    kb.remove_hotkey(h)
                 except Exception:
                     pass
                 ui.hotkey_handles[k] = None
@@ -92,6 +94,14 @@ def main():
                 sys.exit(0)
 
     root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # UI 렌더링 완료 후 시작 시간 출력
+    def print_startup_time():
+        elapsed = time.perf_counter() - _startup_time
+        print(f"[Startup] UI ready in {elapsed:.3f}s")
+
+    root.after(0, print_startup_time)
+
     try:
         root.mainloop()
     finally:

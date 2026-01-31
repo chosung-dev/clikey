@@ -93,7 +93,8 @@ class MacroUI:
         self._build_layout()
         self._bind_events()
         self._register_hotkeys_if_available()
-        self._restore_last_file()
+        # UI 표시 후 파일 로드 (체감 속도 개선)
+        self.root.after(10, self._restore_last_file)
 
     def _init_components(self):
         self.macro_list = None

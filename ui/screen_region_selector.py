@@ -4,7 +4,16 @@ Windows + Shift + S와 유사한 화면 영역 선택 기능을 제공합니다.
 """
 import tkinter as tk
 from typing import Callable, Optional, Tuple
-import pyautogui
+
+# Lazy import for faster startup
+_pyautogui = None
+
+def _get_pyautogui():
+    global _pyautogui
+    if _pyautogui is None:
+        import pyautogui
+        _pyautogui = pyautogui
+    return _pyautogui
 
 
 class ScreenRegionSelector:
@@ -24,6 +33,7 @@ class ScreenRegionSelector:
     def show(self):
         """화면 영역 선택 오버레이 표시"""
         # 전체 화면 크기 가져오기
+        pyautogui = _get_pyautogui()
         screen_width, screen_height = pyautogui.size()
 
         # 투명한 전체 화면 윈도우 생성

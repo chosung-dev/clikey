@@ -5,12 +5,42 @@ from typing import List, Optional, Callable
 
 from core.macro_block import MacroBlock
 from core.event_types import EventType, ConditionType
-from core.mouse import mouse_move_click, mouse_move_only, mouse_down_at_current, mouse_up_at_current
-from core.screen import grab_rgb_at
 from core.state import GlobalState
-from core.image_matcher import ImageMatcher
 from core.keyboard_hotkey import normalize_key_for_keyboard
-import keyboard
+
+# Lazy imports for faster startup
+_mouse = None
+_screen = None
+_image_matcher = None
+_keyboard = None
+
+def _get_mouse():
+    global _mouse
+    if _mouse is None:
+        from core import mouse as m
+        _mouse = m
+    return _mouse
+
+def _get_screen():
+    global _screen
+    if _screen is None:
+        from core import screen as s
+        _screen = s
+    return _screen
+
+def _get_image_matcher():
+    global _image_matcher
+    if _image_matcher is None:
+        from core.image_matcher import ImageMatcher
+        _image_matcher = ImageMatcher
+    return _image_matcher
+
+def _get_keyboard():
+    global _keyboard
+    if _keyboard is None:
+        import keyboard as kb
+        _keyboard = kb
+    return _keyboard
 
 
 class MacroExecutor:
@@ -76,33 +106,35 @@ class MacroExecutor:
             return
 
         action = macro_block.action or "press"
+        kb = _get_keyboard()
         try:
             if action == "press":
-                keyboard.press_and_release(normalized_key)
+                kb.press_and_release(normalized_key)
             elif action == "down":
-                keyboard.press(normalized_key)
+                kb.press(normalized_key)
             elif action == "up":
-                keyboard.release(normalized_key)
+                kb.release(normalized_key)
         except Exception:
             pass
 
     def _execute_mouse(self, macro_block: MacroBlock):
         button = macro_block.event_data or "left"
         action = macro_block.action or "click"
+        mouse = _get_mouse()
 
         if action == "down":
-            mouse_down_at_current(button)
+            mouse.mouse_down_at_current(button)
         elif action == "up":
-            mouse_up_at_current(button)
+            mouse.mouse_up_at_current(button)
         else:
             x, y = self._resolve_mouse_position(macro_block)
             if x is None or y is None:
                 return
 
             if action == "click":
-                mouse_move_click(x, y, button)
+                mouse.mouse_move_click(x, y, button)
             elif action == "move":
-                mouse_move_only(x, y)
+                mouse.mouse_move_only(x, y)
 
     def _execute_delay(self, macro_block: MacroBlock):
         delay_time = float(macro_block.action or 0)
@@ -148,6 +180,7 @@ class MacroExecutor:
         if not macro_block.action:
             return True
 
+        ImageMatcher = _get_image_matcher()
         search_region = self._parse_search_region(macro_block.position)
         result = ImageMatcher.find_image_on_screen(macro_block.action, search_region=search_region)
 
@@ -182,6 +215,7 @@ class MacroExecutor:
         return None
 
     def _store_image_match_result(self, template_path: str, result: tuple[int, int], event_data: str):
+        ImageMatcher = _get_image_matcher()
         context_data = ImageMatcher.create_context_data(template_path, result)
 
         if not hasattr(GlobalState, 'image_match_results'):
@@ -220,7 +254,8 @@ class MacroExecutor:
         if not coords:
             return None
 
-        return grab_rgb_at(*coords)
+        screen = _get_screen()
+        return screen.grab_rgb_at(*coords)
 
     def _compare_rgb(self, expected: str, actual: tuple[int, int, int]) -> bool:
         if not isinstance(expected, str):
@@ -242,7 +277,8 @@ class MacroExecutor:
             return True
 
         try:
-            actual_rgb = grab_rgb_at(*coords)
+            screen = _get_screen()
+            actual_rgb = screen.grab_rgb_at(*coords)
             if actual_rgb is None:
                 return True
 

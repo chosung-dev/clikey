@@ -1,11 +1,27 @@
 import tkinter as tk
 from tkinter import messagebox
-import pyautogui
 from typing import Callable
 
-from core.screen import grab_rgb_at
 from core.macro_block import MacroBlock
 from core.macro_factory import MacroFactory
+
+# Lazy imports for faster startup
+_pyautogui = None
+_screen = None
+
+def _get_pyautogui():
+    global _pyautogui
+    if _pyautogui is None:
+        import pyautogui
+        _pyautogui = pyautogui
+    return _pyautogui
+
+def _get_screen():
+    global _screen
+    if _screen is None:
+        from core import screen
+        _screen = screen
+    return _screen
 
 
 class InputDialogs:
@@ -187,6 +203,7 @@ class InputDialogs:
         update_ui_state()
 
         def tick():
+            pyautogui = _get_pyautogui()
             x, y = pyautogui.position()
             if selected_reference["block"] and selected_reference["display_name"]:
                 pos_var.set(f"현재 좌표: {selected_reference['display_name']}")
@@ -197,8 +214,10 @@ class InputDialogs:
         tick()
 
         def capture():
+            pyautogui = _get_pyautogui()
+            screen = _get_screen()
             x, y = pyautogui.position()
-            rgb = grab_rgb_at(x, y)
+            rgb = screen.grab_rgb_at(x, y)
             if rgb is None:
                 messagebox.showwarning("오류", "화면 캡처에 실패했습니다.")
                 return

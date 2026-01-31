@@ -1,7 +1,16 @@
 # core/keyboard_hotkey.py
 from __future__ import annotations
 from typing import Optional
-import keyboard
+
+# Lazy import for faster startup
+keyboard = None
+
+def _get_keyboard():
+    global keyboard
+    if keyboard is None:
+        import keyboard as kb
+        keyboard = kb
+    return keyboard
 
 
 def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
@@ -43,20 +52,21 @@ def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
 
 def register_hotkeys(root, ui) -> None:
     """Register or update global hotkeys for start/stop."""
+    kb = _get_keyboard()
     for key in ("start", "stop"):
         handle = ui.hotkey_handles.get(key)
         if handle is not None:
             try:
-                keyboard.remove_hotkey(handle)
+                kb.remove_hotkey(handle)
             except Exception:
                 pass
             ui.hotkey_handles[key] = None
 
     if ui.hotkeys.get("start"):
-        ui.hotkey_handles["start"] = keyboard.add_hotkey(
+        ui.hotkey_handles["start"] = kb.add_hotkey(
             ui.hotkeys["start"], lambda: root.after(0, ui.run_macros)
         )
     if ui.hotkeys.get("stop"):
-        ui.hotkey_handles["stop"] = keyboard.add_hotkey(
+        ui.hotkey_handles["stop"] = kb.add_hotkey(
             ui.hotkeys["stop"], lambda: root.after(0, ui.stop_execution)
         )

@@ -1,15 +1,31 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog
-import pyautogui
 from typing import Callable, Optional, Tuple
 import os
 import tempfile
 from PIL import Image, ImageTk
 
-from core.screen import grab_rgb_at
 from core.macro_block import MacroBlock
 from core.macro_factory import MacroFactory
 from ui.magnifier import Magnifier
+
+# Lazy imports for faster startup
+_pyautogui = None
+_screen = None
+
+def _get_pyautogui():
+    global _pyautogui
+    if _pyautogui is None:
+        import pyautogui
+        _pyautogui = pyautogui
+    return _pyautogui
+
+def _get_screen():
+    global _screen
+    if _screen is None:
+        from core import screen
+        _screen = screen
+    return _screen
 
 
 class ConditionDialog:
@@ -121,9 +137,11 @@ class ConditionDialog:
 
         def tick():
             if not is_parent_mode["enabled"]:
+                pyautogui = _get_pyautogui()
+                screen = _get_screen()
                 x, y = pyautogui.position()
                 pos_var.set(f"좌표: ({x}, {y})")
-                rgb = grab_rgb_at(x, y)
+                rgb = screen.grab_rgb_at(x, y)
                 if rgb is None:
                     rgb_var.set("RGB: (---, ---, ---)")
                 else:
@@ -134,8 +152,10 @@ class ConditionDialog:
         tick()
 
         def capture():
+            pyautogui = _get_pyautogui()
+            screen = _get_screen()
             x, y = pyautogui.position()
-            rgb = grab_rgb_at(x, y)
+            rgb = screen.grab_rgb_at(x, y)
             if rgb is None:
                 messagebox.showwarning("오류", "화면 캡처에 실패했습니다.")
                 return
@@ -151,7 +171,8 @@ class ConditionDialog:
                 self.magnifier = Magnifier(win, zoom_factor=10, size=200)
 
             def on_magnifier_click(x, y):
-                rgb = grab_rgb_at(x, y)
+                screen = _get_screen()
+                rgb = screen.grab_rgb_at(x, y)
                 if rgb is None:
                     messagebox.showwarning("오류", "화면 캡처에 실패했습니다.")
                     return
@@ -181,7 +202,8 @@ class ConditionDialog:
             if x is None or y is None:
                 messagebox.showwarning("오류", "먼저 좌표를 캡처하거나 상위좌표를 선택해주세요.")
                 return
-            rgb = grab_rgb_at(x, y)
+            screen = _get_screen()
+            rgb = screen.grab_rgb_at(x, y)
             if rgb is None:
                 messagebox.showwarning("오류", "화면 캡처에 실패했습니다.")
                 return
@@ -538,6 +560,7 @@ class ConditionDialog:
         captured = {"x": None, "y": None}
 
         def tick():
+            pyautogui = _get_pyautogui()
             x, y = pyautogui.position()
             pos_var.set(f"좌표: ({x}, {y})")
             win.after(200, tick)
@@ -545,6 +568,7 @@ class ConditionDialog:
         tick()
 
         def capture():
+            pyautogui = _get_pyautogui()
             x, y = pyautogui.position()
             captured.update({"x": x, "y": y})
             msg.config(text=f"캡처됨: ({x},{y})")

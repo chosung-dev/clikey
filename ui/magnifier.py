@@ -1,10 +1,19 @@
 import tkinter as tk
 from tkinter import Canvas
-import pyautogui
 from PIL import Image, ImageTk, ImageDraw
 from typing import Optional, Callable
 import ctypes
 from ctypes import wintypes
+
+# Lazy import for faster startup
+_pyautogui = None
+
+def _get_pyautogui():
+    global _pyautogui
+    if _pyautogui is None:
+        import pyautogui
+        _pyautogui = pyautogui
+    return _pyautogui
 
 
 # Windows API structures for cursor info
@@ -150,6 +159,7 @@ class Magnifier:
 
         try:
             # Get current mouse position
+            pyautogui = _get_pyautogui()
             mouse_x, mouse_y = pyautogui.position()
 
             # Check if cursor is visible and show/hide overlay accordingly
@@ -229,5 +239,6 @@ class Magnifier:
         """Handle click on magnified canvas."""
         if self.on_click_callback:
             # Get current mouse position (this is where user wants to capture)
+            pyautogui = _get_pyautogui()
             mouse_x, mouse_y = pyautogui.position()
             self.on_click_callback(mouse_x, mouse_y)
