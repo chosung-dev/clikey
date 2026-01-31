@@ -41,8 +41,11 @@ def load_app_state() -> dict:
 def save_app_state(state: dict) -> None:
     path = _app_state_path()
     try:
+        # 기존 상태와 merge
+        existing = load_app_state()
+        existing.update(state or {})
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(state or {}, f, ensure_ascii=False, indent=2)
+            json.dump(existing, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
