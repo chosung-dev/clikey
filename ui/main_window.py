@@ -41,7 +41,7 @@ class MacroUI:
         if self.scale_factor < 0.8:
             # 화면이 많이 작을 경우
             window_scale = 1.5
-            font_scale = 0.75
+            font_scale = 0.9
         elif self.scale_factor < 1.0:
             # 화면이 조금 작을 경우
             window_scale = 1.2
