@@ -3,6 +3,7 @@ from tkinter import messagebox
 from typing import Callable, Optional
 
 from core.keyboard_hotkey import normalize_key_for_keyboard
+from utils.dialog_utils import fit_window_height
 
 
 class SettingsDialog:
@@ -90,6 +91,8 @@ class SettingsDialog:
         win.bind("<Return>", lambda e: self.apply_and_close_settings(win))
         win.bind("<Escape>", lambda e: self._close_settings(win))
 
+        fit_window_height(win, w, h)
+
     def apply_and_close_settings(self, win):
         try:
             repeat = int(self.repeat_var.get())
@@ -163,3 +166,5 @@ class SettingsDialog:
 
         cap.bind("<Key>", on_key)
         cap.bind("<Escape>", lambda e: close_cap())
+
+        fit_window_height(cap, w, h)

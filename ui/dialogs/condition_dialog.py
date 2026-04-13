@@ -8,6 +8,7 @@ from PIL import Image, ImageTk
 from core.macro_block import MacroBlock
 from core.macro_factory import MacroFactory
 from ui.magnifier import Magnifier
+from utils.dialog_utils import fit_window_height
 
 # Lazy imports for faster startup
 _pyautogui = None
@@ -301,6 +302,8 @@ class ConditionDialog:
         # X버튼 클릭 시에도 편집 모드 해제
         win.protocol("WM_DELETE_WINDOW", on_close)
 
+        fit_window_height(win, w, h)
+
     def add_image_match_condition(self):
         win = tk.Toplevel(self.parent)
         win.title("이미지 조건")
@@ -518,6 +521,8 @@ class ConditionDialog:
         # X버튼 클릭 시에도 편집 모드 해제
         win.protocol("WM_DELETE_WINDOW", on_close)
 
+        fit_window_height(win, w, h)
+
     def show_image_preview(self, image_path, preview_label):
         """이미지 미리보기 표시"""
         try:
@@ -610,3 +615,5 @@ class ConditionDialog:
         win.bind("<Return>", lambda e: capture())
         win.bind("<Control-Return>", lambda e: apply_block())
         win.bind("<Escape>", lambda e: on_close())
+
+        fit_window_height(win, 380, 200)

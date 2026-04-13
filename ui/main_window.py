@@ -52,10 +52,20 @@ class MacroUI:
             window_scale = self.scale_factor
             font_scale = 1.0
 
+        # Windows 디스플레이 배율(DPI) 만큼 위젯이 커지므로 창 가로도 비례 확장.
+        # 100% 배율에서는 1.0 이라 기존 크기와 동일.
+        dpi_scale = 1.0
+        try:
+            import ctypes
+            dpi = ctypes.windll.user32.GetDpiForSystem()
+            dpi_scale = max(1.0, dpi / 96.0)
+        except Exception:
+            pass
+
         # 윈도우 크기 조정
-        window_width = int(500 * window_scale)
-        window_height = int(450 * window_scale)
-        self.root.geometry(f"{window_width}x{window_height}")
+        self._base_window_width = int(500 * window_scale * dpi_scale)
+        self._base_window_height = int(450 * window_scale)
+        self.root.geometry(f"{self._base_window_width}x{self._base_window_height}")
 
         # 폰트 크기 계산
         self.base_font_size = max(7, int(9 * font_scale))
@@ -91,6 +101,7 @@ class MacroUI:
         self._init_components()
         self._build_menu()
         self._build_layout()
+        self._ensure_window_fits_content()
         self._bind_events()
         self._register_hotkeys_if_available()
         # UI 표시 후 파일 로드 (체감 속도 개선)
@@ -219,6 +230,18 @@ class MacroUI:
         ).pack(pady=button_pady)
         # 추후 전문가 기능에 추가
         # tk.Button(top_frame, text="좌표조건", width=self.button_width, font=button_font, command=self.add_coordinate_condition).pack(pady=button_pady)
+
+    def _ensure_window_fits_content(self):
+        # 레이아웃 반영 후 버튼이 세로로 잘리면 창 높이만 필요한 만큼 키움.
+        # 가로는 매크로 리스트(Text 위젯)의 기본 폭(80자)이 reqwidth 에 그대로 잡혀
+        # 창이 과도하게 넓어지므로 건드리지 않음. 좌측 프레임은 fill/expand 로 알아서 맞춰짐.
+        try:
+            self.root.update_idletasks()
+            req_h = self.root.winfo_reqheight()
+            if req_h > self._base_window_height:
+                self.root.geometry(f"{self._base_window_width}x{req_h}")
+        except Exception:
+            pass
 
     def _bind_events(self):
         self.root.bind("<Control-s>", self._on_save)

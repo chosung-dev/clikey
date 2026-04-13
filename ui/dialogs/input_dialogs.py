@@ -4,6 +4,7 @@ from typing import Callable
 
 from core.macro_block import MacroBlock
 from core.macro_factory import MacroFactory
+from utils.dialog_utils import fit_window_height
 
 # Lazy imports for faster startup
 _pyautogui = None
@@ -120,6 +121,8 @@ class InputDialogs:
         button_text = "수정 (Ctrl+Enter)" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가 (Ctrl+Enter)"
         tk.Button(btns, text=button_text, width=16, command=add_item).pack(pady=5)
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
+
+        fit_window_height(key_window, w, h)
 
     def add_mouse(self, selected_condition_block=None):
         mouse_win = tk.Toplevel(self.parent)
@@ -328,6 +331,8 @@ class InputDialogs:
         tk.Button(btns, text=button_text, width=16, command=add_item).grid(row=1, column=0, columnspan=2, padx=5, pady=5)
         tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
 
+        fit_window_height(mouse_win, w, h)
+
     def add_delay(self):
         delay_window = tk.Toplevel(self.parent)
         delay_window.title("딜레이 시간")
@@ -397,6 +402,8 @@ class InputDialogs:
 
         # X버튼 클릭 시에도 편집 모드 해제
         delay_window.protocol("WM_DELETE_WINDOW", on_close)
+
+        fit_window_height(delay_window, w, h)
 
     def show_reference_selector(self, parent_win, btn_var, action_var, add_callback, cancel_callback):
         """상위좌표 선택 다이얼로그를 표시"""
@@ -480,6 +487,8 @@ class InputDialogs:
 
         selector_win.bind("<Escape>", lambda e: on_cancel())
 
+        fit_window_height(selector_win, 350, 300)
+
     def show_reference_selector_with_callback(self, parent_win, on_select_callback):
         """상위좌표 선택 다이얼로그를 표시하고 선택시 콜백 함수 호출"""
         from core.state import GlobalState
@@ -541,6 +550,8 @@ class InputDialogs:
         tk.Button(btn_frame, text="취소", command=on_cancel, width=10).grid(row=0, column=1, padx=5)
 
         selector_win.bind("<Escape>", lambda e: on_cancel())
+
+        fit_window_height(selector_win, 350, 300)
 
     def update_reference_button_state(self, button, selected_condition_block=None):
         """이미지 조건 블록이 있는지 확인하여 버튼 상태 업데이트"""
