@@ -184,6 +184,12 @@ class MacroExecutor:
         search_region = self._parse_search_region(macro_block.position)
         result = ImageMatcher.find_image_on_screen(macro_block.action, search_region=search_region)
 
+        if macro_block.inverted:
+            # 불일치 모드: 매치 실패 시 자식 실행 (좌표 정보 없으므로 stack/store 생략)
+            if not result:
+                return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
+            return True
+
         if result:
             self._store_image_match_result(macro_block.action, result, macro_block.event_data)
 
@@ -234,9 +240,11 @@ class MacroExecutor:
         try:
             actual_rgb = self._get_rgb_for_condition(macro_block)
             if actual_rgb is None:
+                # 판단 불가 → 자식 건너뛰기 (inverted 무관)
                 return True
 
-            if self._compare_rgb(macro_block.action, actual_rgb):
+            matched = self._compare_rgb(macro_block.action, actual_rgb)
+            if matched != macro_block.inverted:
                 return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
 
             return True

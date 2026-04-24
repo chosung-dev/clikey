@@ -47,7 +47,7 @@ class MacroFactory:
         )
 
     @staticmethod
-    def create_image_match_block(template_path: str, description: str = "") -> MacroBlock:
+    def create_image_match_block(template_path: str, description: str = "", inverted: bool = False) -> MacroBlock:
         """Create an image match conditional block using IF event type."""
         import os
         filename = os.path.basename(template_path)
@@ -59,11 +59,12 @@ class MacroFactory:
             action=template_path,
             condition_type=ConditionType.IMAGE_MATCH,
             description=description,
-            macro_blocks=[]  # 일치할 경우 실행할 블록들을 위한 컨테이너
+            macro_blocks=[],  # 조건 충족 시 실행할 블록들을 위한 컨테이너
+            inverted=inverted
         )
 
     @staticmethod
-    def create_rgb_match_block(x: int, y: int, expected_rgb: str, description: str = "") -> MacroBlock:
+    def create_rgb_match_block(x: int, y: int, expected_rgb: str, description: str = "", inverted: bool = False) -> MacroBlock:
         """Create an RGB match conditional block using IF event type."""
         return MacroBlock(
             event_type=EventType.IF,
@@ -72,7 +73,8 @@ class MacroFactory:
             position=f"{x},{y}",
             condition_type=ConditionType.RGB_MATCH,
             description=description,
-            macro_blocks=[]  # 일치할 경우 실행할 블록들을 위한 컨테이너
+            macro_blocks=[],  # 조건 충족 시 실행할 블록들을 위한 컨테이너
+            inverted=inverted
         )
 
     @staticmethod
@@ -89,7 +91,7 @@ class MacroFactory:
         )
 
     @staticmethod
-    def create_rgb_match_with_parent_block(expected_rgb: str, description: str = "") -> MacroBlock:
+    def create_rgb_match_with_parent_block(expected_rgb: str, description: str = "", inverted: bool = False) -> MacroBlock:
         """Create an RGB match block that uses parent coordinate."""
         return MacroBlock(
             event_type=EventType.IF,
@@ -98,5 +100,6 @@ class MacroFactory:
             position="@parent",
             condition_type=ConditionType.RGB_MATCH,
             description=description,
-            macro_blocks=[]  # 일치할 경우 실행할 블록들을 위한 컨테이너
+            macro_blocks=[],  # 조건 충족 시 실행할 블록들을 위한 컨테이너
+            inverted=inverted
         )

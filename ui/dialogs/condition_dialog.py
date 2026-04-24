@@ -110,7 +110,7 @@ class ConditionDialog:
         win = tk.Toplevel(self.parent)
         win.title("색상 조건")
         w = int(380 * self.window_scale)
-        h = int(280 * self.window_scale)
+        h = int(320 * self.window_scale)
         win.geometry(f"{w}x{h}+560+320")
         win.resizable(False, False)
         win.transient(self.parent)
@@ -123,6 +123,15 @@ class ConditionDialog:
 
         msg = tk.Label(frm, text="커서를 원하는 위치로 옮긴 뒤\n[좌표/색 캡처] 또는 Enter 키를 누르세요.", justify="center")
         msg.pack(pady=4)
+
+        # 일치/불일치 라디오
+        inverted_var = tk.BooleanVar(value=False)
+        if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
+            inverted_var.set(bool(self.edit_block.inverted))
+        mode_frame = tk.Frame(frm)
+        mode_frame.pack(pady=4)
+        tk.Radiobutton(mode_frame, text="일치", variable=inverted_var, value=False).pack(side=tk.LEFT, padx=8)
+        tk.Radiobutton(mode_frame, text="불일치", variable=inverted_var, value=True).pack(side=tk.LEFT, padx=8)
 
         pos_var = tk.StringVar(value="좌표: (---, ---)")
         rgb_var = tk.StringVar(value="RGB: (---, ---, ---)")
@@ -226,14 +235,14 @@ class ConditionDialog:
 
             # 상위좌표 모드인 경우 @parent 참조 조건 생성
             if is_parent_mode["enabled"]:
-                macro_block = MacroFactory.create_rgb_match_with_parent_block(expected_color)
+                macro_block = MacroFactory.create_rgb_match_with_parent_block(expected_color, inverted=inverted_var.get())
             else:
                 # 일반 모드인 경우 좌표와 색상 모두 필요
                 if captured["x"] is None:
                     messagebox.showwarning("안내", "먼저 좌표와 색상을 캡처하세요.")
                     return
                 x, y = captured['x'], captured['y']
-                macro_block = MacroFactory.create_rgb_match_block(x, y, expected_color)
+                macro_block = MacroFactory.create_rgb_match_block(x, y, expected_color, inverted=inverted_var.get())
 
             # 편집 모드인 경우 기존 블록의 macro_blocks 보존
             if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
@@ -308,7 +317,7 @@ class ConditionDialog:
         win = tk.Toplevel(self.parent)
         win.title("이미지 조건")
         w = int(400 * self.window_scale)
-        h = int(420 * self.window_scale)  # 높이 증가
+        h = int(460 * self.window_scale)  # 높이 증가
         win.geometry(f"{w}x{h}+560+320")
         win.resizable(False, False)
         win.transient(self.parent)
@@ -322,15 +331,24 @@ class ConditionDialog:
         msg = tk.Label(frm, text="매칭할 이미지를 선택하거나 클립보드에서 붙여넣으세요.", justify="center", font=("맑은 고딕", 11))
         msg.pack(pady=10)
 
+        # 일치/불일치 라디오
+        inverted_var = tk.BooleanVar(value=False)
+        if self.is_edit_mode_callback and self.is_edit_mode_callback() and self.edit_block:
+            inverted_var.set(bool(self.edit_block.inverted))
+        mode_frame = tk.Frame(frm)
+        mode_frame.pack(pady=4)
+        tk.Radiobutton(mode_frame, text="있음", variable=inverted_var, value=False).pack(side=tk.LEFT, padx=8)
+        tk.Radiobutton(mode_frame, text="없음", variable=inverted_var, value=True).pack(side=tk.LEFT, padx=8)
+
         selected_file = {"path": None}
         selected_region = {"x1": None, "y1": None, "x2": None, "y2": None}
 
         file_label = tk.Label(frm, text="선택된 파일: 없음", fg="gray", wraplength=350, justify="left")
-        file_label.pack(pady=5)
+        file_label.pack(pady=(5, 0))
 
         # 탐색 범위 표시 레이블
         region_label = tk.Label(frm, text="탐색 범위: 전체 화면", fg="gray", wraplength=350, justify="left")
-        region_label.pack(pady=5)
+        region_label.pack(pady=(0, 5))
 
         # 이미지 미리보기 프레임
         preview_frame = tk.Frame(frm)
@@ -470,7 +488,7 @@ class ConditionDialog:
                 return
 
             try:
-                macro_block = MacroFactory.create_image_match_block(selected_file["path"])
+                macro_block = MacroFactory.create_image_match_block(selected_file["path"], inverted=inverted_var.get())
 
                 # 탐색 범위가 설정된 경우 position에 저장
                 if selected_region["x1"] is not None:

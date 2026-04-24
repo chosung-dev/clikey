@@ -17,6 +17,7 @@ class MacroBlock:
     macro_blocks: List[MacroBlock] = field(default_factory=list)
     key: str = field(default_factory=lambda: MacroBlock._generate_key())
     condition_type: Optional[ConditionType] = None
+    inverted: bool = False
 
     @staticmethod
     def _generate_key() -> str:
@@ -34,6 +35,9 @@ class MacroBlock:
 
         if self.condition_type:
             result["condition_type"] = self.condition_type.value
+
+        if self.inverted:
+            result["inverted"] = True
 
         if self.macro_blocks:
             result["macro_blocks"] = [block.to_dict() for block in self.macro_blocks]
@@ -55,7 +59,8 @@ class MacroBlock:
             description=data.get("description", ""),
             macro_blocks=macro_blocks,
             key=key,
-            condition_type=condition_type
+            condition_type=condition_type,
+            inverted=data.get("inverted", False)
         )
 
     def to_json(self) -> str:
@@ -81,9 +86,11 @@ class MacroBlock:
                 position_display = self.position
                 if self.position and self.position.strip() == "@parent":
                     position_display = "상위좌표"
-                return f"🔻 색상 매치 {position_display}"
+                label = "색상 불일치" if self.inverted else "색상 일치"
+                return f"🔻 {label} {position_display}"
             elif self.condition_type == ConditionType.IMAGE_MATCH:
-                return f"🔻 이미지 매치 @{self.event_data}"
+                label = "이미지 없음" if self.inverted else "이미지 있음"
+                return f"🔻 {label} @{self.event_data}"
             elif self.condition_type == ConditionType.COORDINATE_CONDITION:
                 return f"🔻 좌표 조건 @{self.position}"
             else:
@@ -122,5 +129,6 @@ class MacroBlock:
             description=self.description,
             macro_blocks=copied_nested_blocks,
             key=MacroBlock._generate_key(),
-            condition_type=self.condition_type
+            condition_type=self.condition_type,
+            inverted=self.inverted
         )
