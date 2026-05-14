@@ -6,6 +6,7 @@ pillow==11.3.0
 PyAutoGUI==0.9.54
 PyAutoIt==0.6.5
 pywin32==311
+tkinterdnd2==0.4.3
 
 # PyInstaller 빌드 도구
 pyinstaller==6.16.0

@@ -1,5 +1,6 @@
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_data_files
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--app-name", default="Clikey")
@@ -12,12 +13,15 @@ hidden = [
     "autoit",
     "mss",
     "mss.windows",
+    "tkinterdnd2",
 ]
 # 일부 패키지의 지연 import 대비
 hidden += collect_submodules("pyautogui")
 
 block_cipher = None
 autoit_bins = collect_dynamic_libs('autoit')
+# tkinterdnd2가 의존하는 tkdnd 동적 라이브러리/Tcl 스크립트 포함
+tkdnd_datas = collect_data_files('tkinterdnd2')
 
 a = Analysis(
     ['app.py'],
@@ -25,7 +29,7 @@ a = Analysis(
     binaries=autoit_bins,
     datas=[
         ('app.ico', '.'),
-    ],
+    ] + tkdnd_datas,
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},

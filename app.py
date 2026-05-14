@@ -1,8 +1,9 @@
+import os
 import sys
 import threading
 import time
-import tkinter as tk
 from tkinter import messagebox
+from tkinterdnd2 import TkinterDnD
 import webbrowser
 
 # 시작 시간 측정
@@ -27,8 +28,26 @@ def main():
     if not request_admin_if_needed():
         return
 
-    root = tk.Tk()
-    ui = MacroUI(root)
+    # 관리자 권한 실행 시 UIPI가 탐색기→앱 드래그앤드롭을 차단하므로
+    # Tk 윈도우 생성 전에 프로세스 전역 메시지 필터를 허용으로 설정
+    try:
+        WM_DROPFILES = 0x0233
+        WM_COPYDATA = 0x004A
+        WM_COPYGLOBALDATA = 0x0049
+        ctypes.windll.user32.ChangeWindowMessageFilter(WM_DROPFILES, 1)
+        ctypes.windll.user32.ChangeWindowMessageFilter(WM_COPYDATA, 1)
+        ctypes.windll.user32.ChangeWindowMessageFilter(WM_COPYGLOBALDATA, 1)
+    except Exception:
+        pass
+
+    initial_file = None
+    if len(sys.argv) >= 2:
+        candidate = sys.argv[1]
+        if os.path.exists(candidate) and candidate.lower().endswith(".json"):
+            initial_file = candidate
+
+    root = TkinterDnD.Tk()
+    ui = MacroUI(root, initial_file=initial_file)
 
     # 버전 업데이트 체크 (별도 스레드, 하루에 한 번)
     def check_update():
@@ -69,6 +88,10 @@ def main():
                 except Exception:
                     pass
                 ui.hotkey_handles[k] = None
+        try:
+            kb.unhook_all()
+        except Exception:
+            pass
 
     def on_close():
         try:
@@ -91,7 +114,8 @@ def main():
             try:
                 root.destroy()
             except Exception:
-                sys.exit(0)
+                pass
+            os._exit(0)
 
     root.protocol("WM_DELETE_WINDOW", on_close)
 
@@ -106,6 +130,7 @@ def main():
         root.mainloop()
     finally:
         cleanup_hotkeys()
+        os._exit(0)
 
 if __name__ == "__main__":
     main()
