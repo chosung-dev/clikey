@@ -18,9 +18,10 @@ from ui.dialogs.condition_dialog import ConditionDialog
 
 
 class MacroUI:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, initial_file: str | None = None):
         self.root = root
         self.root.title("Clikey")
+        self._initial_file = initial_file
 
         # 화면 해상도에 따른 스케일 팩터 계산
         screen_width = self.root.winfo_screenwidth()
@@ -255,12 +256,197 @@ class MacroUI:
         self.root.bind("<Control-V>", self._on_paste)
         self.root.bind("<Control-Z>", self._on_undo)
         self.root.bind("<KeyPress-slash>", self._on_add_description)
+        self._enable_file_drop()
+
+    def _enable_file_drop(self):
+        import platform
+        if platform.system() == "Windows":
+            self._enable_file_drop_win32()
+        else:
+            from tkinterdnd2 import DND_FILES
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind("<<Drop>>", self._on_tkdnd_file_drop)
+
+    def _enable_file_drop_win32(self):
+        """관리자 권한에서도 동작하는 Win32 네이티브 파일 드롭.
+
+        Python ctypes 콜백(WINFUNCTYPE)을 wndproc으로 사용하면 keyboard
+        라이브러리의 훅 스레드와 GIL 충돌이 발생한다.
+
+        해결: 순수 x86_64 머신코드 shim을 wndproc으로 설치한다.
+        - 비-드롭 메시지: C 레벨에서 old wndproc으로 직접 점프 (Python 없음)
+        - WM_DROPFILES: HDROP 핸들을 공유 메모리에 저장, return 0 (Python 없음)
+        - Python 타이머가 공유 메모리를 폴링하여 드롭 처리
+        ctypes 콜백이 전혀 없으므로 GIL 문제 불가능.
+        """
+        import ctypes
+        from ctypes import wintypes
+        import struct
+
+        user32 = ctypes.windll.user32
+        shell32 = ctypes.windll.shell32
+        kernel32 = ctypes.windll.kernel32
+
+        WM_DROPFILES = 0x0233
+        WM_COPYDATA = 0x004A
+        WM_COPYGLOBALDATA = 0x0049
+
+        self.root.update_idletasks()
+
+        GA_ROOT = 2
+        frame_hwnd = self.root.winfo_id()
+        hwnd = user32.GetAncestor(frame_hwnd, GA_ROOT) or frame_hwnd
+
+        MSGFLT_ALLOW = 1
+        for msg_id in (WM_DROPFILES, WM_COPYDATA, WM_COPYGLOBALDATA):
+            user32.ChangeWindowMessageFilterEx(hwnd, msg_id, MSGFLT_ALLOW, None)
+
+        shell32.DragAcceptFiles(hwnd, True)
+
+        shell32.DragQueryFileW.argtypes = [
+            ctypes.c_void_p, wintypes.UINT, ctypes.c_wchar_p, wintypes.UINT,
+        ]
+        shell32.DragQueryFileW.restype = wintypes.UINT
+        shell32.DragFinish.argtypes = [ctypes.c_void_p]
+        shell32.DragFinish.restype = None
+
+        # 공유 메모리: 머신코드가 HDROP를 여기에 쓰고 Python이 읽는다
+        self._hdrop_store = ctypes.c_uint64(0)
+        hdrop_store_addr = ctypes.addressof(self._hdrop_store)
+
+        user32.GetWindowLongPtrW.restype = ctypes.c_void_p
+        user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.SetWindowLongPtrW.restype = ctypes.c_void_p
+        user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+
+        GWL_WNDPROC = -4
+        old_wndproc = user32.GetWindowLongPtrW(hwnd, GWL_WNDPROC)
+
+        # x86_64 머신코드 wndproc (36바이트, Python/GIL 개입 없음):
+        #
+        #   cmp edx, 0x233           ; msg == WM_DROPFILES?
+        #   je  drop_path
+        #   mov rax, old_wndproc     ; 아니면 원래 wndproc으로 직접 점프
+        #   jmp rax
+        # drop_path:
+        #   mov rax, hdrop_store     ; HDROP(r8=wParam)를 공유 메모리에 저장
+        #   mov [rax], r8
+        #   xor eax, eax             ; return 0
+        #   ret
+        code = bytearray()
+        code += b'\x81\xfa\x33\x02\x00\x00'       # cmp edx, 0x233
+        code += b'\x74\x0c'                         # je +12 → drop_path
+        code += b'\x48\xb8'                         # mov rax, imm64
+        code += struct.pack('<Q', old_wndproc)
+        code += b'\xff\xe0'                         # jmp rax
+        # drop_path (offset 20):
+        code += b'\x48\xb8'                         # mov rax, imm64
+        code += struct.pack('<Q', hdrop_store_addr)
+        code += b'\x4c\x89\x00'                    # mov [rax], r8
+        code += b'\x31\xc0'                         # xor eax, eax
+        code += b'\xc3'                             # ret
+
+        MEM_COMMIT = 0x1000
+        MEM_RESERVE = 0x2000
+        PAGE_EXECUTE_READWRITE = 0x40
+
+        kernel32.VirtualAlloc.restype = ctypes.c_void_p
+        kernel32.VirtualAlloc.argtypes = [
+            ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, wintypes.DWORD,
+        ]
+        shim_addr = kernel32.VirtualAlloc(
+            None, len(code), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE,
+        )
+        ctypes.memmove(shim_addr, bytes(code), len(code))
+
+        user32.SetWindowLongPtrW(hwnd, GWL_WNDPROC, shim_addr)
+        self._shim_addr = shim_addr
+
+        # 폴링: 공유 메모리에서 HDROP 확인
+        def poll_drops():
+            try:
+                hdrop_value = self._hdrop_store.value
+                if hdrop_value:
+                    self._hdrop_store.value = 0
+                    hdrop = ctypes.c_void_p(hdrop_value)
+                    count = shell32.DragQueryFileW(hdrop, 0xFFFFFFFF, None, 0)
+                    files = []
+                    for i in range(count):
+                        buf = ctypes.create_unicode_buffer(512)
+                        shell32.DragQueryFileW(hdrop, i, buf, 512)
+                        files.append(buf.value)
+                    shell32.DragFinish(hdrop)
+                    if files:
+                        self._on_win32_file_drop(files)
+            except Exception:
+                pass
+            self.root.after(50, poll_drops)
+
+        self.root.after(50, poll_drops)
+
+    def _on_tkdnd_file_drop(self, event):
+        if self.running:
+            messagebox.showwarning("경고", "실행 중에는 불러올 수 없습니다. 중지 후 다시 시도하세요.")
+            return
+        data = event.data or ""
+        paths: list[str] = []
+        i, n = 0, len(data)
+        while i < n:
+            ch = data[i]
+            if ch == " ":
+                i += 1
+                continue
+            if ch == "{":
+                end = data.find("}", i + 1)
+                if end == -1:
+                    paths.append(data[i + 1:])
+                    break
+                paths.append(data[i + 1:end])
+                i = end + 1
+            else:
+                end = data.find(" ", i)
+                if end == -1:
+                    paths.append(data[i:])
+                    break
+                paths.append(data[i:end])
+                i = end + 1
+        if not paths:
+            return
+        file_path = paths[0]
+        if not file_path.lower().endswith(".json"):
+            messagebox.showwarning("불러오기 실패", "JSON 파일만 불러올 수 있습니다.")
+            return
+        if not os.path.exists(file_path):
+            messagebox.showerror("불러오기 실패", f"파일을 찾을 수 없습니다:\n{file_path}")
+            return
+        if not self._confirm_save_if_dirty():
+            return
+        self._open_path(file_path)
+
+    def _on_win32_file_drop(self, files):
+        if self.running:
+            messagebox.showwarning("경고", "실행 중에는 불러올 수 없습니다. 중지 후 다시 시도하세요.")
+            return
+        file_path = files[0]
+        if not file_path.lower().endswith(".json"):
+            messagebox.showwarning("불러오기 실패", "JSON 파일만 불러올 수 있습니다.")
+            return
+        if not os.path.exists(file_path):
+            messagebox.showerror("불러오기 실패", f"파일을 찾을 수 없습니다:\n{file_path}")
+            return
+        if not self._confirm_save_if_dirty():
+            return
+        self._open_path(file_path)
+
 
     def _register_hotkeys_if_available(self):
         register_hotkeys(self.root, self)
 
     def _restore_last_file(self):
         try:
+            if self._initial_file and os.path.exists(self._initial_file):
+                self._open_path(self._initial_file)
+                return
             app_state = load_app_state() or {}
             last_path = app_state.get("last_file_path")
             if last_path and os.path.exists(last_path):
