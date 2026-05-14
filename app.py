@@ -45,7 +45,6 @@ def main():
         candidate = sys.argv[1]
         if os.path.exists(candidate) and candidate.lower().endswith(".json"):
             initial_file = candidate
-
     root = TkinterDnD.Tk()
     ui = MacroUI(root, initial_file=initial_file)
 

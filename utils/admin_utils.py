@@ -21,11 +21,14 @@ def run_as_admin():
 
     try:
         # 관리자 권한으로 현재 프로그램 재시작
+        params = " ".join(
+            f'"{a}"' if " " in a else a for a in sys.argv[1:]
+        )
         result = ctypes.windll.shell32.ShellExecuteW(
             None,
             "runas",
             sys.executable,
-            " ".join(sys.argv),
+            params,
             None,
             1  # SW_SHOWNORMAL
         )
