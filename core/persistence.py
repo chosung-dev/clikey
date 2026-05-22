@@ -4,13 +4,20 @@ from typing import Dict, Any, List
 import os, json
 
 from core.macro_block import MacroBlock
+from core import image_store
+
+
+CURRENT_VERSION = 2
 
 
 def export_data(macro_blocks: List[MacroBlock], settings: Dict[str, Any], hotkeys: Dict[str, Any]) -> Dict[str, Any]:
-    """Export data using MacroBlock format."""
-    return {
-        "version": 1,
-        "macro_blocks": [block.to_dict() for block in macro_blocks],
+    """Export data using MacroBlock format. 이미지 매칭 블록의 경로는 image_store에 임베딩된다."""
+    blocks_data = [block.to_dict() for block in macro_blocks]
+    store = image_store.pack(blocks_data)
+
+    payload: Dict[str, Any] = {
+        "version": CURRENT_VERSION,
+        "macro_blocks": blocks_data,
         "settings": {
             "repeat": int(settings.get("repeat", 1)),
             "start_delay": float(settings.get("start_delay", 3)),
@@ -22,6 +29,9 @@ def export_data(macro_blocks: List[MacroBlock], settings: Dict[str, Any], hotkey
             "stop": hotkeys.get("stop"),
         },
     }
+    if store:
+        payload["image_store"] = store
+    return payload
 
 
 # --- 앱 상태 저장/복원: 최근 파일 경로 등 ---
@@ -50,6 +60,13 @@ def save_app_state(state: dict) -> None:
         pass
 
 def load_macro_data(file_path: str) -> Dict[str, Any]:
-    """Load macro data from file."""
+    """Load macro data from file. image_store가 있으면 캐시에 풀고 블록의 참조를 실제 경로로 치환한다."""
     with open(file_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+
+    store = data.get("image_store")
+    if store:
+        path_map = image_store.unpack(store)
+        image_store.resolve_blocks(data.get("macro_blocks", []), path_map)
+
+    return data
