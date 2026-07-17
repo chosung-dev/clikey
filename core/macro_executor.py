@@ -245,12 +245,36 @@ class MacroExecutor:
 
             matched = self._compare_rgb(macro_block.action, actual_rgb)
             if matched != macro_block.inverted:
-                return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
+                # 색상 조건의 좌표를 image_match_results/stack에 저장하여 하위 @parent 참조 지원
+                coords = self._get_coords_for_rgb_condition(macro_block)
+                if coords:
+                    event_name = macro_block.event_data or macro_block.key
+                    if not hasattr(GlobalState, 'image_match_results'):
+                        GlobalState.image_match_results = {}
+                    if not hasattr(GlobalState, 'image_match_stack'):
+                        GlobalState.image_match_stack = []
+
+                    GlobalState.image_match_results[event_name] = {"x": coords[0], "y": coords[1]}
+                    GlobalState.image_match_stack.append(event_name)
+
+                    try:
+                        return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
+                    finally:
+                        if GlobalState.image_match_stack:
+                            GlobalState.image_match_stack.pop()
+                else:
+                    return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
 
             return True
 
         except Exception:
             return True
+
+    def _get_coords_for_rgb_condition(self, macro_block: MacroBlock) -> Optional[tuple[int, int]]:
+        """색상 조건의 좌표를 반환 (상위좌표 참조 지원용)"""
+        if macro_block.position and macro_block.position.strip() == "@parent":
+            return self._get_parent_image_coordinates()
+        return macro_block.parse_position()
 
     def _get_rgb_for_condition(self, macro_block: MacroBlock) -> Optional[tuple[int, int, int]]:
         if macro_block.position and macro_block.position.strip() == "@parent":
@@ -292,10 +316,22 @@ class MacroExecutor:
 
             GlobalState.current_coordinate_rgb = actual_rgb
 
+            # 좌표 조건의 좌표를 image_match_results/stack에 저장하여 하위 @parent 참조 지원
+            event_name = macro_block.event_data or macro_block.key
+            if not hasattr(GlobalState, 'image_match_results'):
+                GlobalState.image_match_results = {}
+            if not hasattr(GlobalState, 'image_match_stack'):
+                GlobalState.image_match_stack = []
+
+            GlobalState.image_match_results[event_name] = {"x": coords[0], "y": coords[1]}
+            GlobalState.image_match_stack.append(event_name)
+
             try:
                 return self._execute_nested_blocks(macro_block, flat_blocks, base_index)
             finally:
                 GlobalState.current_coordinate_rgb = None
+                if GlobalState.image_match_stack:
+                    GlobalState.image_match_stack.pop()
 
         except Exception:
             return True

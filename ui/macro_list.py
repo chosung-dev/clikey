@@ -704,7 +704,7 @@ class MacroListManager:
                    target_parent.event_type == EventType.IF and
                    hasattr(target_parent, 'condition_type') and
                    target_parent.condition_type and
-                   target_parent.condition_type.value == 'image_match'):
+                   target_parent.condition_type.value in ('image_match', 'rgb_match', 'coordinate')):
                 block.clear_reference_position()
 
         if hasattr(block, 'macro_blocks') and block.macro_blocks:
