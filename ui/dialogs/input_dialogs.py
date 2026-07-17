@@ -1,3 +1,4 @@
+import time
 import tkinter as tk
 from tkinter import messagebox
 from typing import Callable
@@ -67,6 +68,7 @@ class InputDialogs:
         tk.Label(frame, textvariable=key_var, font=("맑은 고딕", 11)).pack(pady=4)
 
         captured_key = {"key": None}
+        esc_state = {"last_time": 0}
 
         # 동작 타입 선택
         action_var = tk.StringVar(value="press")
@@ -79,6 +81,13 @@ class InputDialogs:
 
         def on_key(event):
             key = event.keysym
+            if key == "Escape":
+                now = time.time()
+                # ESC 더블프레스 → 창 닫기
+                if captured_key["key"] == "Escape" and (now - esc_state["last_time"]) < 0.5:
+                    on_close()
+                    return "break"
+                esc_state["last_time"] = now
             # ESC, Return, Tab 등 특수 키도 캡처
             if key:
                 captured_key["key"] = key
@@ -109,7 +118,6 @@ class InputDialogs:
 
         key_window.bind("<Key>", on_key)
         key_window.bind("<Control-Return>", lambda e: add_item())
-        key_window.bind("<Escape>", lambda e: on_close())
 
         # X버튼 클릭 시에도 편집 모드 해제
         key_window.protocol("WM_DELETE_WINDOW", on_close)
@@ -120,7 +128,7 @@ class InputDialogs:
         # 편집 모드에 따라 버튼 텍스트 결정
         button_text = "수정 (Ctrl+Enter)" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가 (Ctrl+Enter)"
         tk.Button(btns, text=button_text, width=16, command=add_item).pack(pady=5)
-        tk.Button(frame, text="취소 (Esc)", command=on_close).pack(pady=6)
+        tk.Button(frame, text="취소 (Esc×2)", command=on_close).pack(pady=6)
 
         fit_window_height(key_window, w, h)
 
