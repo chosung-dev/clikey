@@ -8,6 +8,7 @@ from PIL import Image, ImageTk
 from core.macro_block import MacroBlock
 from core.macro_factory import MacroFactory
 from ui.magnifier import Magnifier
+from ui.frozen_screen_capture import FrozenScreenCapture
 from utils.dialog_utils import fit_window_height
 
 # Lazy imports for faster startup
@@ -205,25 +206,33 @@ class ConditionDialog:
             else:
                 messagebox.showwarning("오류", "상위 좌표 조건을 찾을 수 없습니다.")
 
-        def capture_color():
-            """고정 좌표 색 캡처 - 캡처된 좌표에서 색상만 다시 캡처"""
-            x = captured["x"]
-            y = captured["y"]
-            if x is None or y is None:
-                messagebox.showwarning("오류", "먼저 좌표를 캡처하거나 상위좌표를 선택해주세요.")
-                return
-            screen = _get_screen()
-            rgb = screen.grab_rgb_at(x, y)
-            if rgb is None:
-                messagebox.showwarning("오류", "화면 캡처에 실패했습니다.")
-                return
-            r, g, b = rgb
-            captured.update({"r": r, "g": g, "b": b})
-            rgb_var.set(f"RGB: ({r}, {g}, {b})")
-            if is_parent_mode["enabled"]:
-                msg.config(text=f"상위좌표 색상 캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
-            else:
-                msg.config(text=f"색상 재캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
+        def freeze_capture():
+            """정지 화면 캡처 - 화면을 고정시킨 뒤 정밀 캡처"""
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.withdraw()
+
+            def do_capture():
+                frozen = FrozenScreenCapture(self.parent)
+
+                def on_captured(x, y, r, g, b):
+                    captured.update({"x": x, "y": y, "r": r, "g": g, "b": b})
+                    msg.config(text=f"캡처됨: ({x},{y}) / RGB=({r},{g},{b})")
+                    is_parent_mode["enabled"] = False
+                    win.deiconify()
+                    win.grab_set()
+                    win.focus_force()
+
+                def on_cancel():
+                    win.deiconify()
+                    win.grab_set()
+                    win.focus_force()
+
+                frozen.show(on_captured, on_cancel)
+
+            win.after(150, do_capture)
 
         def apply_block():
             """추가 버튼 - 상위좌표 모드인지에 따라 다른 조건 생성"""
@@ -294,8 +303,8 @@ class ConditionDialog:
         # if not parent_coords:
         #     parent_btn.config(state=tk.DISABLED)
 
-        # 3. 고정 좌표 색 캡처
-        tk.Button(frm, text="고정 좌표 색 캡처", command=capture_color, width=30).pack(pady=2)
+        # 3. 정지 화면 캡처
+        tk.Button(frm, text="정지 화면 캡처", command=freeze_capture, width=30).pack(pady=2)
 
         # 4. 추가/수정
         button_text = "수정 (Ctrl+Enter)" if self.is_edit_mode_callback and self.is_edit_mode_callback() else "추가 (Ctrl+Enter)"
