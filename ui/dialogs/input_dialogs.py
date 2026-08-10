@@ -173,7 +173,7 @@ class InputDialogs:
         action_frame.pack(pady=6, padx=10, fill="x")
         
         tk.Radiobutton(action_frame, text="좌표 클릭", variable=action_var, value="click").grid(row=0, column=0, sticky="w", padx=5)
-        tk.Radiobutton(action_frame, text="좌표로 이동하기", variable=action_var, value="move").grid(row=0, column=1, sticky="w", padx=5)
+        tk.Radiobutton(action_frame, text="좌표로 이동", variable=action_var, value="move").grid(row=0, column=1, sticky="w", padx=5)
         tk.Radiobutton(action_frame, text="누르고있기", variable=action_var, value="down").grid(row=1, column=0, sticky="w", padx=5)
         tk.Radiobutton(action_frame, text="떼기", variable=action_var, value="up").grid(row=1, column=1, sticky="w", padx=5)
 
