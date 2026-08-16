@@ -484,6 +484,8 @@ class MacroUI:
                 self.settings["step_delay"] = float(settings["step_delay"])
             if "beep_on_finish" in settings:
                 self.settings["beep_on_finish"] = bool(settings["beep_on_finish"])
+            if "mouse_move_duration" in settings:
+                self.settings["mouse_move_duration"] = float(settings["mouse_move_duration"])
 
             hotkeys = data.get("hotkeys", {})
             if hotkeys:

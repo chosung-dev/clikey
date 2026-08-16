@@ -49,6 +49,7 @@ class MacroExecutor:
         self.stop_callback = stop_callback
         self.highlight_callback = highlight_callback
         self.step_delay = 0.0
+        self.mouse_move_duration = 0.0
         self.current_block_index = 0
 
     def should_stop(self) -> bool:
@@ -132,9 +133,9 @@ class MacroExecutor:
                 return
 
             if action == "click":
-                mouse.mouse_move_click(x, y, button)
+                mouse.mouse_move_click(x, y, button, self.mouse_move_duration)
             elif action == "move":
-                mouse.mouse_move_only(x, y)
+                mouse.mouse_move_only(x, y, self.mouse_move_duration)
 
     def _execute_delay(self, macro_block: MacroBlock):
         delay_time = float(macro_block.action or 0)

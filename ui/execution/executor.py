@@ -74,6 +74,7 @@ class MacroExecutor:
                 highlight_callback=self._highlight_index
             )
             self.core_executor.step_delay = step_delay
+            self.core_executor.mouse_move_duration = max(0.0, float(settings.get("mouse_move_duration", 0.0)))
 
             while (loop_inf or loops < repeat) and not self.stop_flag:
                 # Clear image match state at the start of each cycle
