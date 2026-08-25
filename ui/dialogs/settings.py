@@ -52,25 +52,20 @@ class SettingsDialog:
         self.repeat_var = tk.IntVar(value=self.settings["repeat"])
         tk.Entry(frm, width=8, textvariable=self.repeat_var).grid(row=0, column=1, sticky="w", padx=8)
 
-        tk.Label(frm, text="시작 지연 (초)").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        start_delay_val = float(self.settings["start_delay"])
-        self.delay_var = tk.StringVar(value=str(int(start_delay_val)) if start_delay_val.is_integer() else str(start_delay_val))
-        tk.Entry(frm, width=8, textvariable=self.delay_var).grid(row=1, column=1, sticky="w", padx=8, pady=(8, 0))
-
-        tk.Label(frm, text="매크로 사이 간격 (초)").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        tk.Label(frm, text="매크로 사이 간격 (초)").grid(row=1, column=0, sticky="w", pady=(8, 0))
         step_delay_val = float(self.settings.get("step_delay", 0.01))
         self.step_delay_var = tk.StringVar(value=str(int(step_delay_val)) if step_delay_val.is_integer() else str(step_delay_val))
-        tk.Entry(frm, width=8, textvariable=self.step_delay_var).grid(row=2, column=1, sticky="w", padx=8, pady=(8, 0))
+        tk.Entry(frm, width=8, textvariable=self.step_delay_var).grid(row=1, column=1, sticky="w", padx=8, pady=(8, 0))
 
-        tk.Label(frm, text="마우스 이동 시간 (초, 0=즉시)").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        tk.Label(frm, text="마우스 이동 시간 (초, 0=즉시)").grid(row=2, column=0, sticky="w", pady=(8, 0))
         move_dur_val = float(self.settings.get("mouse_move_duration", 0.0))
         self.mouse_move_duration_var = tk.StringVar(value=str(int(move_dur_val)) if move_dur_val.is_integer() else str(move_dur_val))
-        tk.Entry(frm, width=8, textvariable=self.mouse_move_duration_var).grid(row=3, column=1, sticky="w", padx=8, pady=(8, 0))
+        tk.Entry(frm, width=8, textvariable=self.mouse_move_duration_var).grid(row=2, column=1, sticky="w", padx=8, pady=(8, 0))
 
         self.start_key_var = tk.StringVar(value=(self.hotkeys.get("start") or "").upper())
         self.stop_key_var = tk.StringVar(value=(self.hotkeys.get("stop") or "").upper())
 
-        row = 4
+        row = 3
 
         self.beep_var = tk.BooleanVar(value=bool(self.settings.get("beep_on_finish", True)))
         tk.Checkbutton(
@@ -101,17 +96,15 @@ class SettingsDialog:
     def apply_and_close_settings(self, win):
         try:
             repeat = int(self.repeat_var.get())
-            delay = float(self.delay_var.get())
             step_delay = float(self.step_delay_var.get())
             mouse_move_duration = float(self.mouse_move_duration_var.get())
-            if repeat < 0 or delay < 0 or step_delay < 0 or mouse_move_duration < 0:
+            if repeat < 0 or step_delay < 0 or mouse_move_duration < 0:
                 raise ValueError
         except Exception:
             messagebox.showerror("에러", "반복 횟수와 지연 시간은 0 이상 이여야 합니다.")
             return
 
         self.settings["repeat"] = repeat
-        self.settings["start_delay"] = delay
         self.settings["step_delay"] = step_delay
         self.settings["mouse_move_duration"] = mouse_move_duration
         self.settings["beep_on_finish"] = bool(self.beep_var.get())

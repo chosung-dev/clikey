@@ -478,8 +478,6 @@ class MacroUI:
             settings = data.get("settings", {})
             if "repeat" in settings:
                 self.settings["repeat"] = int(settings["repeat"])
-            if "start_delay" in settings:
-                self.settings["start_delay"] = float(settings["start_delay"])
             if "step_delay" in settings:
                 self.settings["step_delay"] = float(settings["step_delay"])
             if "beep_on_finish" in settings:

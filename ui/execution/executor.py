@@ -55,12 +55,6 @@ class MacroExecutor:
         try:
             # Create flat list for highlighting
             self.current_flat_blocks = self._create_flat_list(macro_blocks)
-            
-            # Initial delay
-            delay_sec = max(0, float(settings.get("start_delay", 0)))
-            self._sleep(delay_sec)
-            if self.stop_flag:
-                return
 
             # Setup repeat and step delay
             repeat = int(settings.get("repeat", 1))
