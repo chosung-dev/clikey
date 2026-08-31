@@ -363,9 +363,6 @@ def stylesheet() -> str:
 
     /* 편집기 좌우 패널 */
     QWidget#Panel {{ background: {PANEL}; }}
-    QFrame#SearchBox {{
-        background: {BG}; border: 1px solid {RULE_3}; border-radius: {RADIUS_CTRL}px;
-    }}
     QFrame#PaletteItem {{
         background: {BG}; border: 1px solid {RULE_1}; border-radius: {RADIUS_CTRL}px;
     }}

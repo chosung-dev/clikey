@@ -171,6 +171,7 @@ class EditorWindow(FramelessWindow):
         QShortcut(QKeySequence("F"), self, self.fit_view)
         QShortcut(QKeySequence("Ctrl+A"), self, self.ng.select_all)
         QShortcut(QKeySequence("Ctrl+D"), self, self.duplicate_selected)
+        QShortcut(QKeySequence("Ctrl+F"), self, self.palette.focus_search)
         # Windows 에서 QKeySequence.Redo 는 Ctrl+Y 다. 같은 키를 두 번 걸면
         # Qt 가 모호하다고 보고 아무것도 실행하지 않으므로 직접 지정한다.
         QShortcut(QKeySequence("Ctrl+Z"), self, self.undo)

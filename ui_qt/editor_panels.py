@@ -9,13 +9,14 @@ from __future__ import annotations
 import os
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import QMimeData, Qt
+from PySide6.QtCore import QEvent, QMimeData, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -99,6 +100,33 @@ PALETTE_GROUPS: List[Tuple[str, List[str]]] = [
 #: 팔레트에서 캔버스로 끌 때 실어 보내는 표시. 뷰어가 text/plain 을 받아준다.
 DRAG_PREFIX = "clikey/node:"
 
+CHOSEONG = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅ"            "ㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+
+
+def choseong(text: str) -> str:
+    """한글에서 첫 자음만 뽑는다. 한글이 아닌 글자는 그대로 둔다."""
+    out = []
+    for ch in text:
+        code = ord(ch) - 0xAC00
+        out.append(CHOSEONG[code // 588] if 0 <= code <= 11171 else ch)
+    return "".join(out)
+
+
+def matches(node_type: str, needle: str) -> bool:
+    """이름·초성·영문 타입 중 어느 것으로도 찾을 수 있게 한다.
+
+    한글 이름을 치려면 IME 를 오가야 하니 "delay" 같은 타입 이름도 받고,
+    "ㅁㅇ" 처럼 초성만 쳐도 "마우스 이동" 이 걸리게 한다.
+    """
+    if not needle:
+        return True
+    needle = needle.replace(" ", "")
+    label = LABEL.get(node_type, node_type)
+    for hay in (label.lower(), node_type.lower(), choseong(label)):
+        if needle in hay.replace(" ", ""):
+            return True
+    return False
+
 
 class PaletteItem(QFrame):
     def __init__(self, node_type: str, ratio: float, on_add=None):
@@ -162,6 +190,9 @@ class PaletteItem(QFrame):
         drag.exec(Qt.CopyAction)
 
 
+SEARCH_W = PALETTE_W - 20
+
+
 class Palette(QWidget):
     def __init__(self, ratio: float, on_add=None):
         super().__init__()
@@ -169,28 +200,30 @@ class Palette(QWidget):
         self.setObjectName("Panel")
         self.setFixedWidth(PALETTE_W)
 
+        #: [(구역 제목, [그 아래 항목])] — 검색할 때 함께 숨긴다
+        self._sections: List[Tuple[QWidget, List[PaletteItem]]] = []
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # 검색 자리 (아직 동작 안 함)
         search_wrap = QWidget()
         sw = QHBoxLayout(search_wrap)
         sw.setContentsMargins(10, 10, 10, 10)
-        box = QFrame()
-        box.setObjectName("SearchBox")
-        box.setFixedHeight(30)
-        bl = QHBoxLayout(box)
-        bl.setContentsMargins(8, 0, 8, 0)
-        bl.setSpacing(6)
-        glass = QLabel()
+        # 돋보기를 입력칸 위에 겹쳐 둔다 — 홈 화면 검색과 같은 방식
+        box = QWidget()
+        box.setFixedSize(SEARCH_W, 30)
+        self.search = QLineEdit(box)
+        self.search.setObjectName("Search")
+        self.search.setPlaceholderText("노드 검색")
+        self.search.setGeometry(0, 0, SEARCH_W, 30)
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._filter)
+        self.search.returnPressed.connect(self._add_first)
+        self.search.installEventFilter(self)
+        glass = QLabel(box)
         glass.setPixmap(T.icon_pixmap("search", 13, T.INK_4, 1.5, ratio))
-        glass.setFixedSize(13, 13)
-        bl.addWidget(glass)
-        hint = QLabel("노드 검색")
-        hint.setStyleSheet(f"font-size: 12px; color: {T.INK_4};")
-        bl.addWidget(hint)
-        bl.addStretch(1)
+        glass.setGeometry(9, 8, 13, 13)
         sw.addWidget(box)
         root.addWidget(search_wrap)
 
@@ -205,9 +238,20 @@ class Palette(QWidget):
         bodylay.setSpacing(1)
 
         for title, types in PALETTE_GROUPS:
-            bodylay.addWidget(section_label(title))
+            head = section_label(title)
+            bodylay.addWidget(head)
+            items = []
             for node_type in types:
-                bodylay.addWidget(PaletteItem(node_type, ratio, on_add=self.on_add))
+                item = PaletteItem(node_type, ratio, on_add=self.on_add)
+                bodylay.addWidget(item)
+                items.append(item)
+            self._sections.append((head, items))
+
+        self.empty = QLabel("맞는 노드가 없습니다")
+        self.empty.setAlignment(Qt.AlignCenter)
+        self.empty.setStyleSheet(f"font-size: 12px; color: {T.INK_4}; padding: 28px 0;")
+        self.empty.hide()
+        bodylay.addWidget(self.empty)
 
         bodylay.addStretch(1)
 
@@ -217,6 +261,44 @@ class Palette(QWidget):
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         area.setWidget(body)
         root.addWidget(area, 1)
+
+    def focus_search(self) -> None:
+        self.search.setFocus()
+        self.search.selectAll()
+
+    def eventFilter(self, obj, event):
+        """검색 중 Esc 는 창을 닫지 말고 검색어만 비운다."""
+        if (obj is self.search and event.type() == QEvent.KeyPress
+                and event.key() == Qt.Key_Escape and self.search.text()):
+            self.search.clear()
+            return True
+        return super().eventFilter(obj, event)
+
+    def visible_types(self) -> List[str]:
+        return [item.node_type
+                for _, items in self._sections for item in items
+                if not item.isHidden()]
+
+    def _filter(self, text: str = "") -> None:
+        # 항목이 열 몇 개뿐이라 보이고 숨기는 것으로 충분하다. 홈 목록처럼
+        # 디스크를 다시 읽지 않으므로 입력을 늦출 이유도 없다.
+        needle = text.strip().lower()
+        found = False
+        for head, items in self._sections:
+            shown = 0
+            for item in items:
+                ok = matches(item.node_type, needle)
+                item.setVisible(ok)
+                shown += ok
+            head.setVisible(shown > 0)
+            found = found or shown > 0
+        self.empty.setVisible(not found)
+
+    def _add_first(self) -> None:
+        """엔터를 치면 맨 위에 걸린 것을 더한다 — 손을 옮기지 않아도 되게."""
+        types = self.visible_types()
+        if types and self.on_add:
+            self.on_add(types[0])
 
 
 # ---------------------------------------------------------------- 속성 패널
