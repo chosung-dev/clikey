@@ -86,7 +86,7 @@ class MacroExecutor:
                 # Add step delay between loops
                 if step_delay > 0 and not self.stop_flag and (loop_inf or loops < repeat):
                     self._sleep(step_delay)
-                    
+
         finally:
             self.root.after(0, self._finish_execution)
 

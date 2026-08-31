@@ -14,7 +14,6 @@ def export_data(macro_blocks: List[MacroBlock], settings: Dict[str, Any], hotkey
         "settings": {
             "repeat": int(settings.get("repeat", 1)),
             "step_delay": float(settings.get("step_delay", 0.001)),
-            "beep_on_finish": int(settings.get("beep_on_finish", False)),
             "mouse_move_duration": float(settings.get("mouse_move_duration", 0.0)),
         },
         "hotkeys": {

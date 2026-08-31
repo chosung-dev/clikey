@@ -4,7 +4,6 @@ def default_settings():
     return {
         "repeat": 1,
         "step_delay": 0.03,
-        "beep_on_finish": False,
         "mouse_move_duration": 0.0
     }
 

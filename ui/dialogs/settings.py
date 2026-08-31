@@ -67,14 +67,6 @@ class SettingsDialog:
 
         row = 3
 
-        self.beep_var = tk.BooleanVar(value=bool(self.settings.get("beep_on_finish", True)))
-        tk.Checkbutton(
-            frm,
-            text="매크로 종료 시 알림음 재생",
-            variable=self.beep_var
-        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(10, 0))
-
-        row += 1
         tk.Label(frm, text="시작 단축키").grid(row=row, column=0, sticky="w", pady=(10, 0))
         start_entry = tk.Entry(frm, width=12, textvariable=self.start_key_var, state="readonly", readonlybackground="white")
         start_entry.grid(row=row, column=1, sticky="w", padx=8, pady=(10, 0))
@@ -107,7 +99,6 @@ class SettingsDialog:
         self.settings["repeat"] = repeat
         self.settings["step_delay"] = step_delay
         self.settings["mouse_move_duration"] = mouse_move_duration
-        self.settings["beep_on_finish"] = bool(self.beep_var.get())
         
         if self.mark_dirty_callback:
             self.mark_dirty_callback(True)

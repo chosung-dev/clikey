@@ -480,8 +480,6 @@ class MacroUI:
                 self.settings["repeat"] = int(settings["repeat"])
             if "step_delay" in settings:
                 self.settings["step_delay"] = float(settings["step_delay"])
-            if "beep_on_finish" in settings:
-                self.settings["beep_on_finish"] = bool(settings["beep_on_finish"])
             if "mouse_move_duration" in settings:
                 self.settings["mouse_move_duration"] = float(settings["mouse_move_duration"])
 
@@ -696,12 +694,6 @@ class MacroUI:
     def _finish_execution(self):
         self.running = False
         self.toggle_btn.config(text="▶ 실행하기")
-
-        if self.settings.get("beep_on_finish", True):
-            try:
-                self.root.bell()
-            except Exception:
-                pass
 
     def _on_save(self, event=None):
         self.save_file()
