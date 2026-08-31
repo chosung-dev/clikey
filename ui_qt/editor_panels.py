@@ -1,0 +1,482 @@
+# ui_qt/editor_panels.py
+"""편집기의 좌우 패널 — 노드 팔레트와 속성 패널.
+
+팔레트는 아직 보여주기만 한다 (노드 추가는 다음 단계). 속성 패널은 선택한
+노드의 값을 읽어서 보여준다 — 편집은 아직 안 된다.
+"""
+from __future__ import annotations
+
+import os
+from typing import List, Optional, Tuple
+
+from PySide6.QtCore import QMimeData, Qt
+from PySide6.QtGui import QDrag
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.graph import Graph, Node
+from ui_qt import theme as T
+from ui_qt.fields import DEFAULTS, FIELDS, build_widget
+from ui_qt.node_view import CATEGORY, LABEL, SKIN
+
+PALETTE_W = 220
+INSPECTOR_W = 296
+
+# 칩 배경 — node_view.SKIN 의 테두리/강조와 짝이 되는 연한 색
+CHIP_BG = {
+    "input": "#EDF1FB",
+    "wait": "#F1F2F5",
+    "condition": "#FBF3E3",
+    "loop": "#F1ECFA",
+    "flow": "#F7E7E6",
+}
+
+
+def _hex(rgb: Tuple[int, int, int]) -> str:
+    return "#%02X%02X%02X" % rgb
+
+
+def accent_of(node_type: str) -> str:
+    return _hex(SKIN[CATEGORY.get(node_type, "wait")]["accent"])
+
+
+def chip_bg_of(node_type: str) -> str:
+    return CHIP_BG[CATEGORY.get(node_type, "wait")]
+
+
+def icon_chip(node_type: str, ratio: float, box: int = 22, glyph: int = 13,
+              radius: int = 6) -> QFrame:
+    holder = QFrame()
+    holder.setFixedSize(box, box)
+    holder.setStyleSheet(f"background: {chip_bg_of(node_type)}; border-radius: {radius}px;")
+
+    lay = QHBoxLayout(holder)
+    lay.setContentsMargins(0, 0, 0, 0)
+
+    label = QLabel()
+    label.setPixmap(T.icon_pixmap(node_type, glyph, accent_of(node_type), 1.4, ratio))
+    label.setFixedSize(glyph, glyph)
+    lay.addWidget(label, 0, Qt.AlignCenter)
+    return holder
+
+
+def section_label(text: str) -> QWidget:
+    row = QWidget()
+    lay = QHBoxLayout(row)
+    lay.setContentsMargins(4, 10, 4, 5)
+    lay.setSpacing(6)
+
+    label = QLabel(text)
+    label.setObjectName("SectionLabel")
+    lay.addWidget(label)
+
+    rule = QFrame()
+    rule.setFixedHeight(1)
+    rule.setStyleSheet(f"background: {T.RULE_1};")
+    lay.addWidget(rule, 1)
+    return row
+
+
+# ---------------------------------------------------------------- 팔레트
+
+# 시작·종료는 매크로를 만들 때부터 있고 지울 수도 없으므로 팔레트에 두지 않는다.
+PALETTE_GROUPS: List[Tuple[str, List[str]]] = [
+    ("입력", ["mouse_click", "mouse_move", "mouse_down", "mouse_up",
+              "key_press", "key_down", "key_up"]),
+    ("대기", ["delay"]),
+    ("조건", ["rgb_match", "image_match"]),
+    ("반복", ["loop"]),
+]
+
+
+#: 팔레트에서 캔버스로 끌 때 실어 보내는 표시. 뷰어가 text/plain 을 받아준다.
+DRAG_PREFIX = "clikey/node:"
+
+
+class PaletteItem(QFrame):
+    def __init__(self, node_type: str, ratio: float, on_add=None):
+        super().__init__()
+        self.node_type = node_type
+        self.on_add = on_add
+        self._press_at = None
+        self.setObjectName("PaletteItem")
+        self.setFixedHeight(30)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(
+            f"{LABEL.get(node_type, node_type)} — 눌러서 추가하거나 캔버스로 끌어다 놓기")
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 0, 6, 0)
+        lay.setSpacing(8)
+        lay.addWidget(icon_chip(node_type, ratio, 20, 12, 5))
+
+        label = QLabel(LABEL.get(node_type, node_type))
+        label.setStyleSheet("font-size: 12px;")
+        lay.addWidget(label)
+        lay.addStretch(1)
+
+        plus = QLabel()
+        plus.setPixmap(T.icon_pixmap("plus", 11, T.INK_4, 1.6, ratio))
+        plus.setFixedSize(11, 11)
+        lay.addWidget(plus)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._press_at = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """조금이라도 끌면 드래그로 넘긴다 — 클릭 추가와 자연스럽게 갈린다."""
+        if self._press_at is None or not (event.buttons() & Qt.LeftButton):
+            return super().mouseMoveEvent(event)
+        if (event.pos() - self._press_at).manhattanLength() < QApplication.startDragDistance():
+            return super().mouseMoveEvent(event)
+
+        self._press_at = None
+        self._start_drag()
+
+    def mouseReleaseEvent(self, event):
+        was_pressed, self._press_at = self._press_at, None
+        if (was_pressed is not None and event.button() == Qt.LeftButton
+                and self.rect().contains(event.pos()) and self.on_add):
+            self.on_add(self.node_type)
+        super().mouseReleaseEvent(event)
+
+    def _start_drag(self) -> None:
+        mime = QMimeData()
+        mime.setText(DRAG_PREFIX + self.node_type)
+
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        # 끌고 다니는 동안 실제 항목 모습을 그대로 보여준다
+        preview = self.grab()
+        drag.setPixmap(preview)
+        drag.setHotSpot(preview.rect().center() / preview.devicePixelRatio())
+        drag.exec(Qt.CopyAction)
+
+
+class Palette(QWidget):
+    def __init__(self, ratio: float, on_add=None):
+        super().__init__()
+        self.on_add = on_add
+        self.setObjectName("Panel")
+        self.setFixedWidth(PALETTE_W)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # 검색 자리 (아직 동작 안 함)
+        search_wrap = QWidget()
+        sw = QHBoxLayout(search_wrap)
+        sw.setContentsMargins(10, 10, 10, 10)
+        box = QFrame()
+        box.setObjectName("SearchBox")
+        box.setFixedHeight(30)
+        bl = QHBoxLayout(box)
+        bl.setContentsMargins(8, 0, 8, 0)
+        bl.setSpacing(6)
+        glass = QLabel()
+        glass.setPixmap(T.icon_pixmap("search", 13, T.INK_4, 1.5, ratio))
+        glass.setFixedSize(13, 13)
+        bl.addWidget(glass)
+        hint = QLabel("노드 검색")
+        hint.setStyleSheet(f"font-size: 12px; color: {T.INK_4};")
+        bl.addWidget(hint)
+        bl.addStretch(1)
+        sw.addWidget(box)
+        root.addWidget(search_wrap)
+
+        rule = QFrame()
+        rule.setFixedHeight(1)
+        rule.setStyleSheet(f"background: {T.RULE_1};")
+        root.addWidget(rule)
+
+        body = QWidget()
+        bodylay = QVBoxLayout(body)
+        bodylay.setContentsMargins(8, 0, 8, 8)
+        bodylay.setSpacing(1)
+
+        for title, types in PALETTE_GROUPS:
+            bodylay.addWidget(section_label(title))
+            for node_type in types:
+                bodylay.addWidget(PaletteItem(node_type, ratio, on_add=self.on_add))
+
+        bodylay.addStretch(1)
+
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setWidget(body)
+        root.addWidget(area, 1)
+
+
+# ---------------------------------------------------------------- 속성 패널
+
+
+def field(label_text: str, value_widget: QWidget, hint: str = "") -> QWidget:
+    box = QWidget()
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(5)
+
+    label = QLabel(label_text)
+    label.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {T.INK_2};")
+    lay.addWidget(label)
+    lay.addWidget(value_widget)
+
+    if hint:
+        note = QLabel(hint)
+        note.setStyleSheet(f"font-size: 10px; color: {T.INK_4};")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+    return box
+
+
+def value_box(text: str, mono: bool = False) -> QWidget:
+    box = QFrame()
+    box.setObjectName("ValueBox")
+    box.setFixedHeight(32)
+    lay = QHBoxLayout(box)
+    lay.setContentsMargins(9, 0, 9, 0)
+
+    label = QLabel(text or "—")
+    family = f"font-family: '{T.mono_stack()}'; " if mono else ""
+    label.setStyleSheet(f"{family}font-size: 12px;")
+    lay.addWidget(label)
+    lay.addStretch(1)
+    return box
+
+
+def swatch_box(rgb, mono_text: str) -> QWidget:
+    box = QFrame()
+    box.setObjectName("ValueBox")
+    box.setFixedHeight(32)
+    lay = QHBoxLayout(box)
+    lay.setContentsMargins(9, 0, 9, 0)
+    lay.setSpacing(8)
+
+    if rgb:
+        chip = QFrame()
+        chip.setFixedSize(14, 14)
+        chip.setStyleSheet(
+            f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]});"
+            "border: 1px solid rgba(27,30,35,0.15); border-radius: 3px;"
+        )
+        lay.addWidget(chip)
+
+    label = QLabel(mono_text)
+    label.setStyleSheet(f"font-family: '{T.mono_stack()}'; font-size: 12px;")
+    lay.addWidget(label)
+    lay.addStretch(1)
+    return box
+
+
+def port_glyph(port: str, ratio: float) -> QWidget:
+    """참/거짓을 캔버스와 같은 기호로."""
+    truthy = port in ("true", "loop")
+    color = T.RUN if truthy else T.INK_4
+    glyph = "check" if truthy else "cross"
+
+    holder = QFrame()
+    holder.setFixedSize(16, 16)
+    holder.setStyleSheet(
+        f"background: #FFFFFF; border: 1px solid {color}; border-radius: 8px;"
+    )
+    lay = QHBoxLayout(holder)
+    lay.setContentsMargins(0, 0, 0, 0)
+    icon = QLabel()
+    icon.setPixmap(T.icon_pixmap(glyph, 9, T.RUN if truthy else T.INK_3, 2.4, ratio))
+    icon.setFixedSize(9, 9)
+    lay.addWidget(icon, 0, Qt.AlignCenter)
+    return holder
+
+
+PORT_NAME = {"next": "다음", "true": "참", "false": "거짓",
+             "loop": "반복", "done": "빠져나감"}
+
+
+class Inspector(QWidget):
+    """선택한 노드의 값을 보여준다 (읽기 전용)."""
+
+    def __init__(self, ratio: float):
+        super().__init__()
+        self.ratio = ratio
+        self.setObjectName("Panel")
+        self.setFixedWidth(INSPECTOR_W)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.head = QWidget()
+        self.head.setFixedHeight(40)
+        self.head_lay = QHBoxLayout(self.head)
+        self.head_lay.setContentsMargins(12, 0, 12, 0)
+        self.head_lay.setSpacing(8)
+        root.addWidget(self.head)
+
+        rule = QFrame()
+        rule.setFixedHeight(1)
+        rule.setStyleSheet(f"background: {T.RULE_1};")
+        root.addWidget(rule)
+
+        self.body = QWidget()
+        self.body_lay = QVBoxLayout(self.body)
+        self.body_lay.setContentsMargins(12, 14, 12, 14)
+        self.body_lay.setSpacing(14)
+
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setWidget(self.body)
+        root.addWidget(area, 1)
+
+        self.show_node(None, None)
+
+    # ------------------------------------------------------------
+
+    def _clear(self, layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is None:
+                continue
+            # deleteLater 는 다음 이벤트 루프에나 지운다. 그때까지 옛 위젯이
+            # 부모에 남아 새 항목을 가리므로 부모에서 먼저 떼어낸다.
+            widget.setParent(None)
+            widget.deleteLater()
+
+    def show_node(self, node: Optional[Node], graph: Optional[Graph],
+                  on_change=None) -> None:
+        self._clear(self.head_lay)
+        self._clear(self.body_lay)
+        self.on_change = on_change
+
+        if node is None:
+            title = QLabel("속성")
+            title.setStyleSheet("font-size: 12px; font-weight: 600;")
+            self.head_lay.addWidget(title)
+            self.head_lay.addStretch(1)
+
+            empty = QLabel("노드를 선택하면\n설정이 여기에 나타납니다.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(f"font-size: 12px; color: {T.INK_4};")
+            self.body_lay.addStretch(1)
+            self.body_lay.addWidget(empty)
+            self.body_lay.addStretch(2)
+            return
+
+        # 머리말
+        self.head_lay.addWidget(icon_chip(node.type, self.ratio, 20, 12, 5))
+        title = QLabel(node.name or LABEL.get(node.type, node.type))
+        title.setStyleSheet("font-size: 12px; font-weight: 600;")
+        self.head_lay.addWidget(title)
+        self.head_lay.addStretch(1)
+        nid = QLabel(node.id)
+        nid.setStyleSheet(f"font-family: '{T.mono_stack()}'; font-size: 11px; color: {T.INK_4};")
+        self.head_lay.addWidget(nid)
+
+        for widget in self._fields_for(node):
+            self.body_lay.addWidget(widget)
+
+        branches = self._branches(node, graph)
+        if branches is not None:
+            self.body_lay.addWidget(branches)
+
+        self.body_lay.addStretch(1)
+
+    # ------------------------------------------------------------
+
+    def _fields_for(self, node: Node) -> List[QWidget]:
+        specs = FIELDS.get(node.type, [])
+        if not specs:
+            note = {"start": "여기서 실행이 시작됩니다.",
+                    "stop": "여기서 실행을 끝냅니다."}.get(node.type, "설정할 값이 없습니다.")
+            label = QLabel(note)
+            label.setWordWrap(True)
+            label.setStyleSheet(f"font-size: 12px; color: {T.INK_3};")
+            return [label]
+
+        out: List[QWidget] = []
+        for key, label, kind, options, hint in specs:
+            widget = build_widget(
+                kind,
+                node.params.get(key, DEFAULTS.get(node.type, {}).get(key)),
+                options,
+                lambda value, k=key: self._changed(node, k, value),
+            )
+            out.append(field(label, widget, hint))
+        return out
+
+    def _changed(self, node: Node, key: str, value) -> None:
+        if self.on_change:
+            self.on_change(node, key, value)
+
+    def _branches(self, node: Node, graph: Optional[Graph]) -> Optional[QWidget]:
+        if graph is None or not node.ports:
+            return None
+
+        card = QFrame()
+        card.setObjectName("ListCard")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        for index, port in enumerate(node.ports):
+            row = QWidget()
+            row.setFixedHeight(34)
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(9, 0, 9, 0)
+            rl.setSpacing(8)
+
+            if len(node.ports) > 1:
+                rl.addWidget(port_glyph(port, self.ratio))
+                name = QLabel(PORT_NAME.get(port, port))
+                truthy = port in ("true", "loop")
+                name.setStyleSheet(
+                    f"font-size: 11px; font-weight: 500;"
+                    f"color: {T.RUN if truthy else T.INK_3};"
+                )
+                rl.addWidget(name)
+
+            arrow = QLabel()
+            arrow.setPixmap(T.icon_pixmap("arrow_right", 12, T.RULE_4, 1.5, self.ratio))
+            arrow.setFixedSize(12, 12)
+            rl.addWidget(arrow)
+
+            target_id = graph.next_id(node.id, port)
+            target = graph.node(target_id)
+            if target is not None:
+                text = target.name or LABEL.get(target.type, target.type)
+                color = T.INK
+            else:
+                text, color = "연결 없음", T.INK_4
+            label = QLabel(text)
+            label.setStyleSheet(f"font-size: 12px; color: {color};")
+            rl.addWidget(label)
+            rl.addStretch(1)
+
+            if target_id:
+                tid = QLabel(target_id)
+                tid.setStyleSheet(
+                    f"font-family: '{T.mono_stack()}'; font-size: 10px; color: {T.INK_4};")
+                rl.addWidget(tid)
+
+            lay.addWidget(row)
+            if index < len(node.ports) - 1:
+                rule = QFrame()
+                rule.setFixedHeight(1)
+                rule.setStyleSheet(f"background: {T.RULE_1};")
+                lay.addWidget(rule)
+
+        return field("출력 분기", card)
