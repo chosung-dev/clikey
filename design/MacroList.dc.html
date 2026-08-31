@@ -1,0 +1,280 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+  <style>
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
+    a { color: #3A5BC7; } a:hover { color: #2C48A8; }
+    .mono { font-family: "IBM Plex Mono", Consolas, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; background: #FFFFFF; color: #1B1E23; display: flex; overflow: hidden; font-size: 13px;">
+
+  <!-- ── 좌: 사이드바 ── -->
+  <div style="width: 272px; flex-shrink: 0; border-right: 1px solid #E9EAEE; background: #FAFAFB; display: flex; flex-direction: column;">
+
+    <div style="height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 9px; padding: 0 16px;">
+      <div style="width: 24px; height: 24px; border-radius: 7px; background: #1B1E23; display: flex; align-items: center; justify-content: center;">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2.2l9.4 4.7-3.9 1-1 3.9z"></path></svg>
+      </div>
+      <span style="font-size: 14px; font-weight: 600; letter-spacing: -0.1px;">Clikey</span>
+    </div>
+
+    <!-- 폴더 -->
+    <div style="display: flex; align-items: center; gap: 6px; padding: 6px 20px 6px;">
+      <span style="font-size: 10.5px; font-weight: 600; color: #8C939F; letter-spacing: 0.4px;">폴더</span>
+      <div style="flex-grow: 1;"></div>
+      <span style="width: 18px; height: 18px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#A9AEB9" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.4v9.2M3.4 8h9.2"></path></svg>
+      </span>
+    </div>
+    <div style="padding: 0 10px; display: flex; flex-direction: column; gap: 1px;">
+      <div style="height: 34px; border-radius: 7px; background: #EDF1FB; display: flex; align-items: center; gap: 10px; padding: 0 10px;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#3A5BC7" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.6" width="12" height="10.8" rx="1.8"></rect><path d="M2 6.2h12"></path></svg>
+        <span style="font-size: 13px; font-weight: 500; color: #3A5BC7;">전체</span>
+        <span style="flex-grow: 1;"></span>
+        <span class="mono" style="font-size: 11.5px; color: #3A5BC7; font-variant-numeric: tabular-nums;">7</span>
+      </div>
+      <div style="height: 34px; border-radius: 7px; display: flex; align-items: center; gap: 10px; padding: 0 10px;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5A616D" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 12.4V4.2a1 1 0 011-1h2.9l1.4 1.7h5.3a1 1 0 011 1v6.5a1 1 0 01-1 1H3.2a1 1 0 01-1-1z"></path></svg>
+        <span style="font-size: 13px;">업무 자동화</span>
+        <span style="flex-grow: 1;"></span>
+        <span class="mono" style="font-size: 11.5px; color: #A9AEB9; font-variant-numeric: tabular-nums;">4</span>
+      </div>
+      <div style="height: 34px; border-radius: 7px; display: flex; align-items: center; gap: 10px; padding: 0 10px;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5A616D" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 12.4V4.2a1 1 0 011-1h2.9l1.4 1.7h5.3a1 1 0 011 1v6.5a1 1 0 01-1 1H3.2a1 1 0 01-1-1z"></path></svg>
+        <span style="font-size: 13px;">테스트</span>
+        <span style="flex-grow: 1;"></span>
+        <span class="mono" style="font-size: 11.5px; color: #A9AEB9; font-variant-numeric: tabular-nums;">2</span>
+      </div>
+      <div style="height: 34px; border-radius: 7px; display: flex; align-items: center; gap: 10px; padding: 0 10px;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5A616D" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.2" y="4.4" width="11.6" height="8.6" rx="1"></rect><path d="M1.4 4.4h13.2M6.6 7.6h2.8"></path></svg>
+        <span style="font-size: 13px;">보관함</span>
+        <span style="flex-grow: 1;"></span>
+        <span class="mono" style="font-size: 11.5px; color: #A9AEB9; font-variant-numeric: tabular-nums;">1</span>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1;"></div>
+
+    <!-- 설정 -->
+    <div style="padding: 0 10px 4px;">
+      <div style="height: 36px; border-radius: 7px; display: flex; align-items: center; gap: 10px; padding: 0 10px;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5A616D" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"></circle><path d="M12.9 9.8a1.1 1.1 0 00.22 1.21l.04.04a1.34 1.34 0 11-1.9 1.9l-.04-.04a1.1 1.1 0 00-1.21-.22 1.1 1.1 0 00-.67 1v.11a1.34 1.34 0 11-2.68 0v-.06a1.1 1.1 0 00-.72-1 1.1 1.1 0 00-1.21.22l-.04.04a1.34 1.34 0 11-1.9-1.9l.04-.04a1.1 1.1 0 00.22-1.21 1.1 1.1 0 00-1-.67h-.11a1.34 1.34 0 110-2.68h.06a1.1 1.1 0 001-.72 1.1 1.1 0 00-.22-1.21l-.04-.04a1.34 1.34 0 111.9-1.9l.04.04a1.1 1.1 0 001.21.22h.05a1.1 1.1 0 00.67-1v-.11a1.34 1.34 0 112.68 0v.06a1.1 1.1 0 00.67 1 1.1 1.1 0 001.21-.22l.04-.04a1.34 1.34 0 111.9 1.9l-.04.04a1.1 1.1 0 00-.22 1.21v.05a1.1 1.1 0 001 .67h.11a1.34 1.34 0 110 2.68h-.06a1.1 1.1 0 00-1 .67z"></path></svg>
+        <span style="font-size: 13px;">설정</span>
+      </div>
+    </div>
+
+    <!-- 단축키 상태 -->
+    <div style="margin: 0 12px 12px; padding: 11px 12px; border-radius: 8px; border: 1px solid #E3E5EA; background: #FFFFFF; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: #1F8A70;"></span>
+        <span style="font-size: 12px; font-weight: 500;">전역 단축키 활성</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <span class="mono" style="width: 34px; font-size: 11px; color: #5A616D;">F8</span>
+          <span style="font-size: 11.5px; color: #8C939F;">선택 매크로 실행</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <span class="mono" style="width: 34px; font-size: 11px; color: #5A616D;">F9</span>
+          <span style="font-size: 11.5px; color: #8C939F;">전체 정지</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 우: 본문 ── -->
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+
+    <!-- 창 컨트롤 -->
+    <div style="height: 40px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px;">
+      <span style="width: 34px; height: 28px; border-radius: 5px; display: flex; align-items: center; justify-content: center;">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5A616D" stroke-width="1.4" stroke-linecap="round"><path d="M3.4 8h9.2"></path></svg>
+      </span>
+    </div>
+
+    <!-- 헤더 -->
+    <div style="flex-shrink: 0; display: flex; align-items: flex-end; gap: 14px; padding: 0 24px 18px;">
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.3px;">매크로</h1>
+        <span style="font-size: 12.5px; color: #8C939F;">7개 · 1개 실행 중</span>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="height: 34px; width: 300px; border-radius: 7px; border: 1px solid #E3E5EA; background: #FFFFFF; display: flex; align-items: center; gap: 7px; padding: 0 10px;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#A9AEB9" stroke-width="1.5" stroke-linecap="round"><circle cx="7.2" cy="7.2" r="4.4"></circle><path d="M10.5 10.5l3 3"></path></svg>
+        <span style="color: #A9AEB9; font-size: 12.5px;">이름, 단축키로 검색</span>
+      </div>
+      <button style="width: 34px; height: 34px; border-radius: 7px; border: 1px solid #1B1E23; background: #1B1E23; color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.4v9.2M3.4 8h9.2"></path></svg>
+      </button>
+    </div>
+
+    <!-- 표 -->
+    <div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column;">
+
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 34px; padding: 0 24px; border-top: 1px solid #E9EAEE; border-bottom: 1px solid #EDEFF3; font-size: 11px; color: #8C939F;">
+        <span>이름</span>
+        <span>단축키</span>
+        <span>노드</span>
+        <span>마지막 실행</span>
+        <span>상태</span>
+      </div>
+
+      <!-- 실행 중 -->
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 62px; padding: 0 24px; border-bottom: 1px solid #EDEFF3; background: #F7F9FE; box-shadow: inset 3px 0 0 #3A5BC7;">
+        <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+          <span style="width: 30px; height: 30px; border-radius: 7px; background: #E4F1EC; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="#1F8A70"><path d="M4.8 2.8l7.8 4.8a.35.35 0 010 .6l-7.8 4.8a.35.35 0 01-.53-.3V3.1a.35.35 0 01.53-.3z"></path></svg>
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 500;">로그인 자동화</span>
+            <span style="font-size: 11px; color: #A9AEB9;">업무 자동화</span>
+          </div>
+        </div>
+        <span class="mono" style="height: 22px; padding: 0 8px; border-radius: 5px; border: 1px solid #E3E5EA; background: #FFFFFF; font-size: 11px; display: inline-flex; align-items: center; justify-self: start;">F8</span>
+        <span style="font-size: 12.5px; color: #5A616D; font-variant-numeric: tabular-nums;">7</span>
+        <span style="font-size: 12.5px; color: #1F8A70;">지금</span>
+        <span style="height: 24px; padding: 0 9px; border-radius: 12px; background: #E4F1EC; display: inline-flex; align-items: center; gap: 6px; justify-self: start;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: #1F8A70;"></span>
+          <span style="font-size: 11.5px; color: #1B6B58; font-weight: 500;">실행 중 · <span class="mono">12/50</span></span>
+        </span>
+      </div>
+
+      <!-- 대기 중 -->
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 62px; padding: 0 24px; border-bottom: 1px solid #EDEFF3;">
+        <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+          <span style="width: 30px; height: 30px; border-radius: 7px; background: #F1F2F5; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#6B7280" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.2" cy="3.4" r="1.7"></circle><circle cx="11.8" cy="8" r="1.7"></circle><circle cx="4.2" cy="12.6" r="1.7"></circle><path d="M5.7 4.3l4.6 2.9M10.3 8.8l-4.6 2.9"></path></svg>
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 500;">일일 리포트 내려받기</span>
+            <span style="font-size: 11px; color: #A9AEB9;">업무 자동화</span>
+          </div>
+        </div>
+        <span class="mono" style="height: 22px; padding: 0 8px; border-radius: 5px; border: 1px solid #E3E5EA; background: #FFFFFF; font-size: 11px; display: inline-flex; align-items: center; justify-self: start;">Ctrl+1</span>
+        <span style="font-size: 12.5px; color: #5A616D; font-variant-numeric: tabular-nums;">23</span>
+        <span style="font-size: 12.5px; color: #5A616D;">오늘 09:02</span>
+        <span style="height: 24px; padding: 0 9px; border-radius: 12px; background: #F1F2F5; display: inline-flex; align-items: center; gap: 6px; justify-self: start;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid #A9AEB9; box-sizing: border-box;"></span>
+          <span style="font-size: 11.5px; color: #5A616D;">대기 중</span>
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 62px; padding: 0 24px; border-bottom: 1px solid #EDEFF3;">
+        <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+          <span style="width: 30px; height: 30px; border-radius: 7px; background: #F1F2F5; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#6B7280" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.2" cy="3.4" r="1.7"></circle><circle cx="11.8" cy="8" r="1.7"></circle><circle cx="4.2" cy="12.6" r="1.7"></circle><path d="M5.7 4.3l4.6 2.9M10.3 8.8l-4.6 2.9"></path></svg>
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 500;">재고 시트 갱신</span>
+            <span style="font-size: 11px; color: #A9AEB9;">업무 자동화</span>
+          </div>
+        </div>
+        <span class="mono" style="height: 22px; padding: 0 8px; border-radius: 5px; border: 1px solid #E3E5EA; background: #FFFFFF; font-size: 11px; display: inline-flex; align-items: center; justify-self: start;">Ctrl+2</span>
+        <span style="font-size: 12.5px; color: #5A616D; font-variant-numeric: tabular-nums;">41</span>
+        <span style="font-size: 12.5px; color: #5A616D;">어제 18:44</span>
+        <span style="height: 24px; padding: 0 9px; border-radius: 12px; background: #F1F2F5; display: inline-flex; align-items: center; gap: 6px; justify-self: start;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid #A9AEB9; box-sizing: border-box;"></span>
+          <span style="font-size: 11.5px; color: #5A616D;">대기 중</span>
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 62px; padding: 0 24px; border-bottom: 1px solid #EDEFF3;">
+        <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+          <span style="width: 30px; height: 30px; border-radius: 7px; background: #F1F2F5; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#6B7280" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.2" cy="3.4" r="1.7"></circle><circle cx="11.8" cy="8" r="1.7"></circle><circle cx="4.2" cy="12.6" r="1.7"></circle><path d="M5.7 4.3l4.6 2.9M10.3 8.8l-4.6 2.9"></path></svg>
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 500;">폼 반복 입력</span>
+            <span style="font-size: 11px; color: #A9AEB9;">테스트</span>
+          </div>
+        </div>
+        <span style="font-size: 12.5px; color: #C8CCD4;">—</span>
+        <span style="font-size: 12.5px; color: #5A616D; font-variant-numeric: tabular-nums;">15</span>
+        <span style="font-size: 12.5px; color: #5A616D;">3일 전</span>
+        <span style="height: 24px; padding: 0 9px; border-radius: 12px; background: #F1F2F5; display: inline-flex; align-items: center; gap: 6px; justify-self: start;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid #A9AEB9; box-sizing: border-box;"></span>
+          <span style="font-size: 11.5px; color: #5A616D;">대기 중</span>
+        </span>
+      </div>
+
+      <!-- 사용 안 함 -->
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 62px; padding: 0 24px; border-bottom: 1px solid #EDEFF3;">
+        <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+          <span style="width: 30px; height: 30px; border-radius: 7px; background: #F1F2F5; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#A9AEB9" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.2" cy="3.4" r="1.7"></circle><circle cx="11.8" cy="8" r="1.7"></circle><circle cx="4.2" cy="12.6" r="1.7"></circle><path d="M5.7 4.3l4.6 2.9M10.3 8.8l-4.6 2.9"></path></svg>
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 500; color: #5A616D;">화면 캡처 정리</span>
+            <span style="font-size: 11px; color: #A9AEB9;">테스트</span>
+          </div>
+        </div>
+        <span class="mono" style="height: 22px; padding: 0 8px; border-radius: 5px; border: 1px solid #EDEFF3; background: #FFFFFF; font-size: 11px; color: #A9AEB9; display: inline-flex; align-items: center; justify-self: start;">Ctrl+3</span>
+        <span style="font-size: 12.5px; color: #8C939F; font-variant-numeric: tabular-nums;">9</span>
+        <span style="font-size: 12.5px; color: #8C939F;">1주 전</span>
+        <span style="height: 24px; padding: 0 9px; border-radius: 12px; background: #F1F2F5; display: inline-flex; align-items: center; gap: 6px; justify-self: start;">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="#A9AEB9"><rect x="4" y="3.2" width="2.6" height="9.6" rx=".9"></rect><rect x="9.4" y="3.2" width="2.6" height="9.6" rx=".9"></rect></svg>
+          <span style="font-size: 11.5px; color: #8C939F;">사용 안 함</span>
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 62px; padding: 0 24px; border-bottom: 1px solid #EDEFF3;">
+        <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+          <span style="width: 30px; height: 30px; border-radius: 7px; background: #F1F2F5; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#6B7280" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.2" cy="3.4" r="1.7"></circle><circle cx="11.8" cy="8" r="1.7"></circle><circle cx="4.2" cy="12.6" r="1.7"></circle><path d="M5.7 4.3l4.6 2.9M10.3 8.8l-4.6 2.9"></path></svg>
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 500;">메일 첨부 저장</span>
+            <span style="font-size: 11px; color: #A9AEB9;">업무 자동화</span>
+          </div>
+        </div>
+        <span style="font-size: 12.5px; color: #C8CCD4;">—</span>
+        <span style="font-size: 12.5px; color: #5A616D; font-variant-numeric: tabular-nums;">28</span>
+        <span style="font-size: 12.5px; color: #5A616D;">2주 전</span>
+        <span style="height: 24px; padding: 0 9px; border-radius: 12px; background: #F1F2F5; display: inline-flex; align-items: center; gap: 6px; justify-self: start;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid #A9AEB9; box-sizing: border-box;"></span>
+          <span style="font-size: 11.5px; color: #5A616D;">대기 중</span>
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 100px 96px 132px 148px; align-items: center; gap: 16px; height: 62px; padding: 0 24px; border-bottom: 1px solid #EDEFF3;">
+        <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+          <span style="width: 30px; height: 30px; border-radius: 7px; background: #F1F2F5; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#A9AEB9" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.2" cy="3.4" r="1.7"></circle><circle cx="11.8" cy="8" r="1.7"></circle><circle cx="4.2" cy="12.6" r="1.7"></circle><path d="M5.7 4.3l4.6 2.9M10.3 8.8l-4.6 2.9"></path></svg>
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 500; color: #5A616D;">구버전 백업</span>
+            <span style="font-size: 11px; color: #A9AEB9;">보관함</span>
+          </div>
+        </div>
+        <span style="font-size: 12.5px; color: #C8CCD4;">—</span>
+        <span style="font-size: 12.5px; color: #8C939F; font-variant-numeric: tabular-nums;">12</span>
+        <span style="font-size: 12.5px; color: #8C939F;">1개월 전</span>
+        <span style="height: 24px; padding: 0 9px; border-radius: 12px; background: #F1F2F5; display: inline-flex; align-items: center; gap: 6px; justify-self: start;">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="#A9AEB9"><rect x="4" y="3.2" width="2.6" height="9.6" rx=".9"></rect><rect x="9.4" y="3.2" width="2.6" height="9.6" rx=".9"></rect></svg>
+          <span style="font-size: 11.5px; color: #8C939F;">사용 안 함</span>
+        </span>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+    </div>
+
+    <!-- 상태 바 -->
+    <div style="height: 30px; flex-shrink: 0; border-top: 1px solid #E9EAEE; display: flex; align-items: center; padding: 0 24px; gap: 7px; font-size: 11.5px; color: #8C939F;">
+      <span style="width: 6px; height: 6px; border-radius: 50%; background: #1F8A70;"></span>
+      <span>후킹 정상 · 관리자 권한</span>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
