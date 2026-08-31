@@ -1,8 +1,4 @@
-"""Clikey 진입점 (PySide6).
-
-기존 tkinter 앱은 `app_tk.py` 로 남아 있다. 노드 편집기가 Qt 로 옮겨올 때까지
-매크로 편집은 그쪽에서 한다.
-"""
+"""Clikey 진입점."""
 import os
 import sys
 import threading

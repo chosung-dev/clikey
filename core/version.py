@@ -2,7 +2,7 @@
 import urllib.request
 import re
 
-__version__ = "v1.2.7"
+__version__ = "v2.0.0"
 
 GITHUB_OWNER = "chosung-dev"
 GITHUB_REPO = "clikey"
