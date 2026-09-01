@@ -338,45 +338,6 @@ def field(label_text: str, value_widget: QWidget, hint: str = "") -> QWidget:
     return box
 
 
-def value_box(text: str, mono: bool = False) -> QWidget:
-    box = QFrame()
-    box.setObjectName("ValueBox")
-    box.setFixedHeight(32)
-    lay = QHBoxLayout(box)
-    lay.setContentsMargins(9, 0, 9, 0)
-
-    label = QLabel(text or "—")
-    family = f"font-family: '{T.mono_stack()}'; " if mono else ""
-    label.setStyleSheet(f"{family}font-size: 12px;")
-    lay.addWidget(label)
-    lay.addStretch(1)
-    return box
-
-
-def swatch_box(rgb, mono_text: str) -> QWidget:
-    box = QFrame()
-    box.setObjectName("ValueBox")
-    box.setFixedHeight(32)
-    lay = QHBoxLayout(box)
-    lay.setContentsMargins(9, 0, 9, 0)
-    lay.setSpacing(8)
-
-    if rgb:
-        chip = QFrame()
-        chip.setFixedSize(14, 14)
-        chip.setStyleSheet(
-            f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]});"
-            "border: 1px solid rgba(27,30,35,0.15); border-radius: 3px;"
-        )
-        lay.addWidget(chip)
-
-    label = QLabel(mono_text)
-    label.setStyleSheet(f"font-family: '{T.mono_stack()}'; font-size: 12px;")
-    lay.addWidget(label)
-    lay.addStretch(1)
-    return box
-
-
 def port_glyph(port: str, ratio: float) -> QWidget:
     """참/거짓을 캔버스와 같은 기호로."""
     truthy = port in ("true", "loop")

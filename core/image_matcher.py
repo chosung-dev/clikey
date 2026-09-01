@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple
 import os
 import cv2
 import numpy as np
@@ -125,13 +125,3 @@ class ImageMatcher:
         del template, screenshot_bgr, result
 
         return center_x, center_y
-
-    @staticmethod
-    def create_context_data(template_path: str, center_pos: Tuple[int, int]) -> Dict[str, Any]:
-        name_without_ext = os.path.splitext(os.path.basename(template_path))[0]
-        return {
-            "name": name_without_ext,
-            "x": center_pos[0],
-            "y": center_pos[1],
-            "template_path": template_path
-        }

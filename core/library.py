@@ -68,10 +68,6 @@ class MacroFile:
     stop_key: str = ""       # 종료 노드에 적힌 종료 단축키
     enabled: bool = True     # 꺼두면 단축키를 걸지 않는다
 
-    @property
-    def modified_text(self) -> str:
-        return humanize(self.modified)
-
 
 def humanize(timestamp: float) -> str:
     """시각을 사람이 읽는 표현으로. 0 이면 "—"."""
@@ -143,10 +139,6 @@ def read_summary(path: Path, stat=None):
         _NODE_COUNT_CACHE.clear()
     _NODE_COUNT_CACHE[key] = (stamp, summary)
     return summary
-
-
-def count_nodes(path: Path, stat=None) -> Optional[int]:
-    return read_summary(path, stat)[0]
 
 
 def scan(root: Optional[Path] = None) -> List[MacroFile]:

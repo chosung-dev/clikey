@@ -83,10 +83,6 @@ class Node:
     def ports(self) -> Tuple[str, ...]:
         return NODE_PORTS.get(self.type, ())
 
-    @property
-    def is_condition(self) -> bool:
-        return self.type in CONDITION_TYPES
-
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {"type": self.type}
         if self.name:
@@ -170,10 +166,6 @@ class Graph:
         self.edges.append(edge)
         self.reindex()
         return edge
-
-    def disconnect(self, src: str, port: str = "next") -> None:
-        self.edges = [e for e in self.edges if not (e.src == src and e.port == port)]
-        self.reindex()
 
     def remove_node(self, node_id: str) -> None:
         self.nodes.pop(node_id, None)
