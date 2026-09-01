@@ -16,8 +16,11 @@ from NodeGraphQt.constants import (
     PipeLayoutEnum,
     ViewerEnum,
 )
+from NodeGraphQt.qgraphics.node_abstract import AbstractNodeItem
 from NodeGraphQt.qgraphics.node_base import NodeItem
 from NodeGraphQt.qgraphics.pipe import PipeItem
+from NodeGraphQt.qgraphics.port import PortItem
+from NodeGraphQt.widgets.viewer import NodeViewer
 from Qt import QtCore, QtGui, QtWidgets
 
 from core.graph import Graph
@@ -415,6 +418,41 @@ def _hide_pipe_arrows() -> None:
     PipeItem._clikey_no_arrow = True
 
 
+def _click_only_selects_pipes() -> None:
+    """연결선을 누르면 고르기만 한다.
+
+    NodeGraphQt 는 선을 누르면 가까운 쪽 절반을 판단해 그 끝을 잡아 떼고
+    다시 잇게 해준다. 선을 지우거나 살펴보려고 눌렀을 때도 연결이 끊겨
+    헷갈린다. 그래서 선을 눌렀을 때는 원래 처리를 건너뛴다 — 고르는 일은
+    그 뒤에 이어 도는 Qt 기본 처리가 알아서 한다.
+
+    다시 이으려면 노드의 포트에서 끌어다 놓으면 된다.
+    """
+    if getattr(NodeViewer, "_clikey_pipe_click_only", False):
+        return
+
+    original = NodeViewer.sceneMousePressEvent
+
+    def pipe_at(viewer, pos):
+        """그 자리에 노드·포트 없이 선만 있는가."""
+        for item in viewer._items_near(pos, None, 5, 5):
+            if isinstance(item, (AbstractNodeItem, PortItem)):
+                return None
+            if isinstance(item, PipeItem):
+                return item
+        return None
+
+    def patched(self, event):
+        # 선 자르기(Alt+Shift)·화면 밀기(Alt)·이어 그리는 중일 때는 건드리지 않는다
+        busy = self.ALT_state or self._LIVE_PIPE.isVisible()
+        if not busy and pipe_at(self, event.scenePos()) is not None:
+            return
+        return original(self, event)
+
+    NodeViewer.sceneMousePressEvent = patched
+    NodeViewer._clikey_pipe_click_only = True
+
+
 UNDO_KEYS = {"Ctrl+Z", "Ctrl+Y", "Ctrl+Shift+Z", "Alt+Backspace",
              "Alt+Shift+Backspace"}
 
@@ -438,6 +476,7 @@ def make_graph_widget() -> NodeGraph:
     _theme_pipe_constants()
     _hide_pipe_arrows()
     _install_back_edge_routing()
+    _click_only_selects_pipes()
 
     ng = NodeGraph(layout_direction=LayoutDirectionEnum.VERTICAL.value)
 
