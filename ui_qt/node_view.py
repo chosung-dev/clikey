@@ -158,6 +158,9 @@ class ClikeyNodeItem(NodeItem):
         self.accent = SKIN["wait"]["accent"]
         self.running = False                 # 실행 중 이 노드를 지나는 중
         self.dimmed = False                  # 고를 수 없는 노드 (좌표 고르는 중)
+        self.pickable = False                # 좌표를 가져올 수 있는 노드
+        self._hovered = False
+        self.setAcceptHoverEvents(True)
         self._preview = QtGui.QPixmap()      # 이미지 검색 노드의 그림
         self.text_item.setVisible(False)     # 내장 라벨은 카드 밖에 그려진다
         # 위치가 바뀔 때 알림을 받아야 끌면서 맞출 수 있다
@@ -223,6 +226,27 @@ class ClikeyNodeItem(NodeItem):
             _guides(self.scene()).hide()
         super().mouseReleaseEvent(event)
 
+    # ------------------------------------------------------------ 고르기 표시
+
+    def set_pickable(self, on: bool) -> None:
+        """좌표를 가져올 수 있는 노드로 표시한다. 마우스를 올리면 티가 난다."""
+        self.pickable = on
+        self.setCursor(QtCore.Qt.PointingHandCursor if on
+                       else QtCore.Qt.ArrowCursor)
+        if not on:
+            self._hovered = False
+        self.update()
+
+    def hoverEnterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().hoverLeaveEvent(event)
+
     # ------------------------------------------------------------ 미리보기
 
     def set_preview(self, pixmap) -> None:
@@ -276,7 +300,18 @@ class ClikeyNodeItem(NodeItem):
         )
         painter.restore()
 
-        if self.running:
+        if self.pickable and self._hovered:
+            # 고를 수 있는 노드에 마우스를 올렸을 때 — 누르면 된다는 표시
+            halo = QtGui.QPainterPath()
+            halo.addRoundedRect(
+                self.boundingRect().adjusted(-3.0, -3.0, 3.0, 3.0),
+                self.RADIUS + 3.0, self.RADIUS + 3.0)
+            painter.setPen(QtGui.QPen(QtGui.QColor(*_rgb(T.ACCENT), 60), 4.0))
+            painter.drawPath(halo)
+            painter.fillPath(path, QtGui.QColor(*_rgb(T.ACCENT_BG)))
+            border = QtGui.QColor(*_rgb(T.ACCENT))
+            weight = 2.0
+        elif self.running:
             # 실행 중인 노드는 초록 테두리 + 바깥 발광으로 눈에 띄게
             glow = QtGui.QPainterPath()
             glow.addRoundedRect(

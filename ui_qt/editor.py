@@ -695,8 +695,9 @@ class EditorWindow(FramelessWindow):
 
         self.ng.clear_selection()
         for node_id, ui in self.made.items():
-            ui.view.dimmed = node_id not in self._pick_targets
-            ui.view.update()
+            can = node_id in self._pick_targets
+            ui.view.dimmed = not can
+            ui.view.set_pickable(can)
         self.status.setText("좌표를 가져올 노드를 클릭하세요  ·  Esc 취소")
 
     def end_pick_coord(self) -> None:
@@ -706,7 +707,7 @@ class EditorWindow(FramelessWindow):
         self._pick_done = None
         for ui in self.made.values():
             ui.view.dimmed = False
-            ui.view.update()
+            ui.view.set_pickable(False)
         self._refresh_status()
 
     def _picking(self) -> bool:
