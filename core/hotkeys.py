@@ -16,6 +16,7 @@ _PRETTY = {
     "backspace": "Backspace", "delete": "Delete", "insert": "Insert",
     "home": "Home", "end": "End", "page up": "PageUp", "page down": "PageDown",
     "up": "↑", "down": "↓", "left": "←", "right": "→",
+    "caps lock": "CapsLock", "num lock": "NumLock", "print screen": "PrintScreen",
 }
 _FROM_PRETTY = {v.lower(): k for k, v in _PRETTY.items()}
 _FROM_PRETTY.update({"pageup": "page up", "pagedown": "page down"})
@@ -152,3 +153,51 @@ class HotkeyBinder:
                 failed.append(key)
 
         return failed
+
+
+# ---------------------------------------------------------------- 키 하나
+
+# QKeySequence 가 내놓는 이름 중 keyboard 가 못 알아듣거나 더 나은 짝이 있는 것.
+# 나머지("tab", "home", "f5", ",", "-" …)는 소문자로만 바꾸면 그대로 통한다.
+_QT_SINGLE = {
+    "control": "ctrl",
+    "meta": "win",              # keyboard 는 "meta" 를 모른다
+    "return": "enter",
+    "del": "delete",
+    "ins": "insert",
+    "pgup": "page up",
+    "pgdown": "page down",
+    "print": "print screen",
+    "capslock": "caps lock",
+    "numlock": "num lock",
+}
+
+
+def single_key(text: str) -> str:
+    """QKeySequence 이름 -> keyboard 가 아는 키 이름 하나.
+
+    조합키용 `normalize()` 와 달리 "+" 와 "-" 를 가르지 않는다. 그 둘도
+    매크로가 보낼 수 있는 키라서, 갈라 버리면 빈 값이 된다.
+    """
+    key = (text or "").strip().lower()
+    return _QT_SINGLE.get(key, key)
+
+
+def display_key(text: str) -> str:
+    """키 하나를 화면 표기로. `display()` 와 달리 "+" 를 가르지 않는다."""
+    if not text:
+        return "—"
+    low = str(text).strip().lower()
+    return _PRETTY.get(low, low.upper() if len(low) == 1 else low.capitalize())
+
+
+def is_sendable(key: str) -> bool:
+    """매크로가 실제로 보낼 수 있는 키인가."""
+    if not key:
+        return False
+    try:
+        from core.keyboard_hotkey import _get_keyboard
+        _get_keyboard().key_to_scan_codes(key)
+        return True
+    except Exception:
+        return False

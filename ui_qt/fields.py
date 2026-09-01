@@ -297,6 +297,138 @@ class HotkeyField(QWidget):
         self.on_change(self.value)
 
 
+class KeyField(QWidget):
+    """키를 눌러 어떤 키를 보낼지 정한다.
+
+    이름을 외워 치게 하면 "엔터" 처럼 틀리게 적어도 저장되고, 실행할 때가
+    되어서야 아무 일도 일어나지 않는다. 직접 눌러 잡게 하고, 매크로가 보낼
+    수 없는 키면 그 자리에서 알린다.
+
+    조합키는 담지 않는다 — 누르고 있기 · 떼기 노드로 만들면 된다. 그래서
+    Ctrl+C 를 누르면 C 만 잡힌다.
+    """
+
+    #: 이 키들은 혼자 눌러도 값이 된다 (Shift 를 누르고 있는 매크로 등)
+    MODIFIERS = {
+        Qt.Key_Control: "ctrl", Qt.Key_Alt: "alt",
+        Qt.Key_Shift: "shift", Qt.Key_Meta: "win",
+    }
+
+    def __init__(self, value, on_change: Setter):
+        super().__init__()
+        self.on_change = on_change
+        self.value = hotkeys.single_key(value or "")
+        self.listening = False
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(5)
+
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        self.box = QFrame()
+        self.box.setObjectName("ValueBox")
+        self.box.setFixedHeight(32)
+        bl = QHBoxLayout(self.box)
+        bl.setContentsMargins(9, 0, 9, 0)
+        self.label = QLabel()
+        bl.addWidget(self.label)
+        bl.addStretch(1)
+        lay.addWidget(self.box, 1)
+
+        self.button = QPushButton("키 잡기")
+        self.button.setObjectName("GhostBtn")
+        self.button.setFixedHeight(32)
+        self.button.setCursor(Qt.PointingHandCursor)
+        self.button.clicked.connect(self._toggle)
+        lay.addWidget(self.button)
+
+        self.clear_btn = QPushButton("해제")
+        self.clear_btn.setObjectName("GhostBtn")
+        self.clear_btn.setFixedHeight(32)
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.clicked.connect(self._clear)
+        lay.addWidget(self.clear_btn)
+        root.addWidget(row)
+
+        self.note = QLabel()
+        self.note.setWordWrap(True)
+        self.note.hide()
+        root.addWidget(self.note)
+
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if self.listening:
+            self.label.setText("키를 누르세요…")
+            self.label.setStyleSheet(f"font-size: 12px; color: {T.ACCENT};")
+        else:
+            self.label.setText(hotkeys.display_key(self.value))
+            self.label.setStyleSheet(
+                f"font-family: '{T.mono_stack()}'; font-size: 12px;")
+        self.box.setProperty("listening", self.listening)
+        self.button.setText("취소" if self.listening else "키 잡기")
+        self.box.style().unpolish(self.box)
+        self.box.style().polish(self.box)
+
+    def _say(self, text: str, bad: bool = False) -> None:
+        self.note.setVisible(bool(text))
+        self.note.setText(text)
+        self.note.setObjectName("DialogError" if bad else "DialogHint")
+        self.note.setStyleSheet(
+            f"font-size: 11px; color: {T.DANGER if bad else T.INK_4};")
+
+    def _toggle(self) -> None:
+        self.listening = not self.listening
+        if self.listening:
+            self._say("Esc 도 그대로 잡힙니다. 그만두려면 취소를 누르세요.")
+            self.setFocus(Qt.OtherFocusReason)
+            self.grabKeyboard()
+        else:
+            self._say("")
+            self.releaseKeyboard()
+        self._refresh()
+
+    def _clear(self) -> None:
+        if self.listening:
+            self._toggle()
+        self.value = ""
+        self._say("")
+        self._refresh()
+        self.on_change("")
+
+    def keyPressEvent(self, event):
+        if not self.listening:
+            return super().keyPressEvent(event)
+
+        code = event.key()
+        if code in self.MODIFIERS:
+            key = self.MODIFIERS[code]
+        else:
+            # 수정키는 떼고 바탕이 되는 키만 본다 — 조합키는 담지 않는다
+            key = hotkeys.single_key(QKeySequence(code).toString())
+        if not key:
+            return
+
+        if not hotkeys.is_sendable(key):
+            self._say(f"‘{hotkeys.display_key(key)}’ 는 보낼 수 없는 키입니다.", bad=True)
+            return
+
+        self.value = key
+        self.listening = False
+        self.releaseKeyboard()
+        self._refresh()
+        if code not in self.MODIFIERS and event.modifiers() & (
+                Qt.ControlModifier | Qt.AltModifier | Qt.ShiftModifier | Qt.MetaModifier):
+            self._say("조합키는 담기지 않습니다 — 누르고 있기 · 떼기 노드로 만드세요.")
+        else:
+            self._say("")
+        self.on_change(self.value)
+
+
 class ColorField(QWidget):
     def __init__(self, color, on_change: Setter):
         super().__init__()
@@ -430,9 +562,9 @@ FIELDS: Dict[str, List[Spec]] = {
     "mouse_down": [("button", "버튼", "choice", {"options": BUTTONS}, "")],
     "mouse_up": [("button", "버튼", "choice", {"options": BUTTONS}, "")],
 
-    "key_press": [("key", "키", "text", {"placeholder": "예: enter, esc, a"}, "")],
-    "key_down": [("key", "키", "text", {"placeholder": "예: shift, ctrl"}, "")],
-    "key_up": [("key", "키", "text", {"placeholder": "예: shift, ctrl"}, "")],
+    "key_press": [("key", "보낼 키", "key", {}, "")],
+    "key_down": [("key", "누르고 있을 키", "key", {}, "")],
+    "key_up": [("key", "뗄 키", "key", {}, "")],
 
     "delay": [
         ("seconds", "대기 시간", "number",
@@ -493,4 +625,6 @@ def build_widget(kind: str, value, options: Dict[str, Any], on_change: Setter) -
         return FileField(str(value or ""), on_change)
     if kind == "hotkey":
         return HotkeyField(value, on_change)
+    if kind == "key":
+        return KeyField(value, on_change)
     return TextField(value, on_change)
