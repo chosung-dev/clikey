@@ -49,7 +49,7 @@ LABEL = {
     "mouse_down": "마우스 누르기", "mouse_up": "마우스 떼기",
     "key_press": "키 누르기", "key_down": "키 누르고 있기", "key_up": "키 떼기",
     "delay": "대기",
-    "image_match": "이미지 검색", "rgb_match": "색상 일치",
+    "image_match": "이미지 검색", "rgb_match": "색상 검색",
     "loop": "반복",
 }
 
