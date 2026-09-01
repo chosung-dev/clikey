@@ -118,7 +118,7 @@ def main():
     print(f"찾은 좌표: {executor.coords or '없음'}")
 
     body = order.count("hit")
-    print(f"\n반복 본문이 {body}번 돌았습니다 (loop max=3 → 참 갈래 2번 + 마지막에 done)")
+    print(f"\n반복 본문이 {body}번 돌았습니다 (반복 횟수 3 -> 몸통 3번 뒤 done)")
     return 0
 
 
