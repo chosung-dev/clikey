@@ -134,6 +134,8 @@ class Graph:
     edges: List[Edge] = field(default_factory=list)
     entry: Optional[str] = None
     layout: Dict[str, List[int]] = field(default_factory=dict)
+    #: 꺼두면 목록에서 단축키를 걸지 않는다. 지우지 않고 잠시 쉬게 할 때 쓴다.
+    enabled: bool = True
 
     def __post_init__(self):
         self._index: Dict[Tuple[str, str], str] = {}
@@ -294,6 +296,7 @@ class Graph:
             "edges": [edge.to_dict() for edge in self.edges],
             "entry": self.entry,
             "layout": self.layout,
+            "enabled": self.enabled,
         }
 
     @classmethod
@@ -316,7 +319,11 @@ class Graph:
         if not entry:
             entry = next((nid for nid, n in nodes.items() if n.type == "start"), None)
 
-        return cls(nodes=nodes, edges=edges, entry=entry, layout=layout)
+        # 옛 파일에는 없던 값이라 기본은 켜짐
+        enabled = data.get("enabled", True) is not False
+
+        return cls(nodes=nodes, edges=edges, entry=entry, layout=layout,
+                   enabled=enabled)
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)

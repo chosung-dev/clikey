@@ -341,6 +341,19 @@ def test_error_in_node_is_reported():
     assert result.last_node == "n2"
 
 
+def test_enabled_defaults_on_and_survives_round_trip():
+    g = Graph()
+    assert g.enabled is True
+
+    g.enabled = False
+    assert Graph.from_json(g.to_json()).enabled is False
+
+
+def test_enabled_missing_in_old_files_means_on():
+    """사용 여부가 없던 시절 파일은 켜진 것으로 읽는다."""
+    old = {"version": 1, "nodes": {}, "edges": [], "entry": None, "layout": {}}
+    assert Graph.from_dict(old).enabled is True
+
 # ----------------------------------------------------------------
 
 def main():

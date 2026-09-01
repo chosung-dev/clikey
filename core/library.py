@@ -62,6 +62,7 @@ class MacroFile:
     broken: bool = False
     start_key: str = ""      # 시작 노드에 적힌 실행 단축키
     stop_key: str = ""       # 종료 노드에 적힌 종료 단축키
+    enabled: bool = True     # 꺼두면 단축키를 걸지 않는다
 
     @property
     def modified_text(self) -> str:
@@ -97,19 +98,22 @@ _CACHE_LIMIT = 2000
 
 
 def read_summary(path: Path, stat=None):
-    """(노드 수, 실행 단축키, 종료 단축키). 그래프 파일이 아니면 (None, "", "")."""
+    """(노드 수, 실행 단축키, 종료 단축키, 사용 여부).
+
+    그래프 파일이 아니면 (None, "", "", True).
+    """
     try:
         info = stat or path.stat()
         stamp = (info.st_mtime_ns, info.st_size)
     except OSError:
-        return None, "", ""
+        return None, "", "", True
 
     key = str(path)
     cached = _NODE_COUNT_CACHE.get(key)
     if cached is not None and cached[0] == stamp:
         return cached[1]
 
-    summary = (None, "", "")
+    summary = (None, "", "", True)
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -126,7 +130,8 @@ def read_summary(path: Path, stat=None):
                     start_key = str(node.get("hotkey") or "")
                 elif node.get("type") == "stop" and not stop_key:
                     stop_key = str(node.get("hotkey") or "")
-            summary = (len(nodes), start_key, stop_key)
+            enabled = data.get("enabled", True) is not False
+            summary = (len(nodes), start_key, stop_key, enabled)
 
     if len(_NODE_COUNT_CACHE) > _CACHE_LIMIT:
         _NODE_COUNT_CACHE.clear()
@@ -162,7 +167,7 @@ def scan(root: Optional[Path] = None) -> List[MacroFile]:
                 continue
 
             # stat 을 재사용해 파일 정보를 한 번만 조회한다
-            nodes, start_key, stop_key = read_summary(child, info)
+            nodes, start_key, stop_key, enabled = read_summary(child, info)
             entries.append(MacroFile(
                 path=child,
                 name=child.stem,
@@ -172,6 +177,7 @@ def scan(root: Optional[Path] = None) -> List[MacroFile]:
                 broken=nodes is None,
                 start_key=start_key,
                 stop_key=stop_key,
+                enabled=enabled,
             ))
 
     collect(root, UNFILED)
@@ -345,6 +351,18 @@ def move_macro(path: Path, folder: str, root: Optional[Path] = None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     source.rename(target)
     return target
+
+
+def set_enabled(path: Path, enabled: bool) -> None:
+    """매크로 파일의 사용 여부만 바꾼다. 나머지 내용은 그대로 둔다."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("매크로 파일 형식이 아닙니다.")
+
+    data["enabled"] = bool(enabled)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def delete_macro(path: Path, root: Optional[Path] = None) -> None:

@@ -76,6 +76,7 @@ class Macro:
     progress: str = ""          # 실행 중일 때 "12/50"
     path: Optional[object] = None
     broken: bool = False
+    enabled: bool = True        # 꺼두면 단축키를 걸지 않는다
 
 
 @dataclass
@@ -100,6 +101,8 @@ def load_macros() -> List[Macro]:
             stop_shortcut=entry.stop_key,
             path=entry.path,
             broken=entry.broken,
+            enabled=entry.enabled,
+            status=WAITING if entry.enabled else DISABLED,
         ))
     return macros
 
@@ -933,7 +936,8 @@ class HomeWindow(FramelessWindow):
             self._update_status()
             return
 
-        here = [m for m in self.macros if m.folder == self.folder_key]
+        here = [m for m in self.macros
+                if m.folder == self.folder_key and m.enabled]
         entries = []
         for macro in here:
             if macro.shortcut:
@@ -956,6 +960,8 @@ class HomeWindow(FramelessWindow):
     # ------------------------------------------------------------ 실행
 
     def run_macro(self, macro: Macro) -> None:
+        if not macro.enabled:
+            return
         key = str(macro.path)
         if key in self.runners and self.runners[key].running:
             return
@@ -1002,7 +1008,10 @@ class HomeWindow(FramelessWindow):
                 break
 
     def _mark_running(self, macro: Macro, running: bool) -> None:
-        macro.status = RUNNING if running else WAITING
+        if running:
+            macro.status = RUNNING
+        else:
+            macro.status = WAITING if macro.enabled else DISABLED
         for index in range(self.rows_box.count()):
             row = self.rows_box.itemAt(index).widget()
             if isinstance(row, MacroRow) and row.macro is macro:
@@ -1228,8 +1237,30 @@ class HomeWindow(FramelessWindow):
             move_menu.setEnabled(False)
 
         menu.addSeparator()
+        toggle = menu.addAction(
+            "다시 사용" if not macro.enabled else "사용 안 함",
+            lambda: self.set_macro_enabled(macro, not macro.enabled))
+        toggle.setEnabled(not macro.broken)
+
+        menu.addSeparator()
         menu.addAction("삭제", lambda: self.delete_macro(macro))
         menu.exec(at)
+
+    def set_macro_enabled(self, macro: Macro, enabled: bool) -> None:
+        """매크로를 잠시 쉬게 한다. 꺼두면 단축키가 풀리고 행이 흐려진다."""
+        if self._editor_open_for(macro):
+            dialogs.alert(self, "편집 중",
+                          f"‘{macro.name}’ 편집기를 닫은 뒤에 바꿔주세요.")
+            return
+        if not enabled:
+            self.stop_macro(macro)
+
+        try:
+            library.set_enabled(macro.path, enabled)
+        except (OSError, ValueError) as exc:
+            dialogs.alert(self, "바꿀 수 없음", f"{macro.name}\n\n{exc}")
+            return
+        self.reload()
 
     # ------------------------------------------------------------ 편집기
 
