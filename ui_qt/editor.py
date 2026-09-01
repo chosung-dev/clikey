@@ -138,6 +138,8 @@ class EditorWindow(FramelessWindow):
         self._history = [self.model.to_dict()]
         self._hist_at = 0
         self.ng.viewer().moved_nodes.connect(self._after_change)
+        # 가운데 버튼은 Delete 와 같게. 화면 끌기는 우클릭이 맡는다.
+        self.ng.viewer().viewport().installEventFilter(self)
         self.ng.port_connected.connect(self._after_change)
         self.ng.port_disconnected.connect(self._after_change)
         self.ng.data_dropped.connect(self.drop_node)
@@ -572,6 +574,13 @@ class EditorWindow(FramelessWindow):
         drawn = {(e.src, e.dst, e.port) for e in node_view.read_edges(self.made)}
         return [e for e in self.model.edges
                 if (e.src, e.dst, e.port) not in drawn]
+
+    def eventFilter(self, obj, event):
+        if (event.type() == QEvent.MouseButtonPress
+                and event.button() == Qt.MiddleButton):
+            self.delete_selected()
+            return True         # 여기서 멈춘다 (기본 동작인 화면 끌기 대신)
+        return super().eventFilter(obj, event)
 
     def showEvent(self, event):
         super().showEvent(event)
