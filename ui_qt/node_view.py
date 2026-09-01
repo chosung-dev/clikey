@@ -304,6 +304,18 @@ def summarize(node) -> str:
 # ---------------------------------------------------------------- 캔버스
 
 
+def _tint_port(made_port, name: str) -> None:
+    """포트 점도 같은 색으로 — 아직 잇지 않았을 때도 어느 쪽인지 알게."""
+    tint = port_color(name)
+    if tint is None or made_port is None:
+        return
+    try:
+        made_port.view.color = tint
+        made_port.view.border_color = tint
+    except Exception:
+        pass
+
+
 def _theme_pipe_constants() -> None:
     """연결선 기본색·강조색을 시안 색으로.
 
@@ -401,6 +413,50 @@ def _install_back_edge_routing() -> None:
     PipeItem._clikey_back_routing = True
 
 
+#: 갈래가 둘인 노드에서 어느 쪽으로 나가는 선인지 색으로 가른다.
+#: 예전에 붙여 두었던 "참"/"거짓" 글자를 뺀 뒤로는 둘이 구분되지 않았다.
+PORT_COLORS = {
+    "true": T.RUN,
+    "false": T.DANGER,
+    "loop": "#7350B8",
+    "done": T.INK_3,
+}
+
+
+def port_color(name: str):
+    """포트 이름에 맞는 (r, g, b, a). 갈래가 하나뿐인 포트는 None."""
+    hex_color = PORT_COLORS.get(name)
+    return (*_rgb(hex_color), 255) if hex_color else None
+
+
+def _install_port_colors() -> None:
+    """연결선을 출발한 포트 색으로 그린다.
+
+    NodeGraphQt 는 모든 선을 한 색으로 그려서, 조건 노드의 참·거짓 두 선이
+    똑같이 보였다. 어느 쪽이 참인지 보드에서 알 수 없다.
+    """
+    if getattr(PipeItem, "_clikey_port_colors", False):
+        return
+
+    def resolved(self):
+        out = self.output_port
+        tinted = port_color(out.name) if out is not None else None
+        return tinted or self._color
+
+    PipeItem.color = property(resolved, lambda self, value: setattr(self, "_color", value))
+
+    original = PipeItem.draw_path
+
+    def draw_path(self, start_port, end_port=None, cursor_pos=None):
+        original(self, start_port, end_port, cursor_pos)
+        # 고르거나 실행 중일 때의 색은 건드리지 않는다
+        if not (self._active or self._highlight):
+            self.set_pipe_styling(color=self.color, width=2, style=self.style)
+
+    PipeItem.draw_path = draw_path
+    PipeItem._clikey_port_colors = True
+
+
 def _hide_pipe_arrows() -> None:
     """연결선 가운데 화살표를 없앤다.
 
@@ -476,6 +532,7 @@ def make_graph_widget() -> NodeGraph:
     _theme_pipe_constants()
     _hide_pipe_arrows()
     _install_back_edge_routing()
+    _install_port_colors()
     _click_only_selects_pipes()
 
     ng = NodeGraph(layout_direction=LayoutDirectionEnum.VERTICAL.value)
@@ -518,7 +575,8 @@ def populate(model: Graph, ng: NodeGraph) -> Dict[str, object]:
         for port in node.ports:
             # 출력 하나에서 갈 수 있는 다음 노드는 하나뿐이다. 다중 연결을 허용하면
             # 화면에는 선이 둘 그려지는데 실행은 하나만 따라가 조용히 어긋난다.
-            ui.add_output(port, display_name=False, multi_output=False)
+            made_port = ui.add_output(port, display_name=False, multi_output=False)
+            _tint_port(made_port, port)
 
         skin = SKIN[CATEGORY.get(node.type, "wait")]
         ui.view.border_color = (*skin["border"], 255)
