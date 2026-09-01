@@ -673,12 +673,15 @@ class ImageField(QWidget):
     실행할 때가 되어서야 조용히 "못 찾음" 이 된다. 여기서 미리 알린다.
     """
 
-    THUMB = 56
+    #: 미리보기 칸 높이. 찾을 대상은 대개 작은 버튼이라 원본보다 키우지는
+    #: 않고, 칸만 넉넉히 잡아 가운데에 둔다.
+    PREVIEW_H = 132
 
     def __init__(self, path: str, on_change: Setter):
         super().__init__()
         self.on_change = on_change
         self.path = str(path or "")
+        self._shot = None          # 줄이기 전 원본
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -686,25 +689,25 @@ class ImageField(QWidget):
 
         card = QFrame()
         card.setObjectName("ValueBox")
-        cl = QHBoxLayout(card)
+        cl = QVBoxLayout(card)
         cl.setContentsMargins(8, 8, 8, 8)
-        cl.setSpacing(10)
+        cl.setSpacing(8)
 
         self.thumb = QLabel()
-        self.thumb.setFixedSize(self.THUMB, self.THUMB)
+        self.thumb.setMinimumHeight(self.PREVIEW_H)
         self.thumb.setAlignment(Qt.AlignCenter)
         cl.addWidget(self.thumb)
 
-        text = QVBoxLayout()
-        text.setSpacing(2)
         self.name = QLabel()
+        self.name.setWordWrap(True)
+        self.name.setAlignment(Qt.AlignCenter)
         self.name.setStyleSheet("font-size: 12px; font-weight: 500;")
         self.detail = QLabel()
+        self.detail.setWordWrap(True)
+        self.detail.setAlignment(Qt.AlignCenter)
         self.detail.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
-        text.addWidget(self.name)
-        text.addWidget(self.detail)
-        text.addStretch(1)
-        cl.addLayout(text, 1)
+        cl.addWidget(self.name)
+        cl.addWidget(self.detail)
         root.addWidget(card)
         self.card = card
 
@@ -727,9 +730,10 @@ class ImageField(QWidget):
     def _refresh(self) -> None:
         from pathlib import Path
 
+        self._shot = None
         if not self.path:
             self.thumb.setPixmap(QPixmap())
-            self.thumb.setText("없음")
+            self.thumb.setText("이미지 없음")
             self.thumb.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
             self.name.setText("이미지를 고르세요")
             self._detail("파일을 고르거나 클립보드에서 붙여넣습니다")
@@ -743,16 +747,32 @@ class ImageField(QWidget):
         shot = QPixmap(self.path)
         if shot.isNull():
             self.thumb.setPixmap(QPixmap())
-            self.thumb.setText("?")
-            self.thumb.setStyleSheet(f"font-size: 15px; color: {T.DANGER};")
+            self.thumb.setText("찾을 수 없음")
+            self.thumb.setStyleSheet(f"font-size: 12px; color: {T.DANGER};")
             self._detail("파일을 찾을 수 없습니다" if not file.exists()
                          else "이미지로 읽을 수 없는 파일입니다", bad=True)
             return
 
         self.thumb.setStyleSheet("")
-        self.thumb.setPixmap(shot.scaled(
-            self.THUMB, self.THUMB, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._shot = shot
+        self._draw_preview()
         self._detail(f"{shot.width()} × {shot.height()}")
+
+    def _draw_preview(self) -> None:
+        """칸보다 큰 그림만 줄인다. 작은 그림을 늘리면 뭉개져 알아보기 어렵다."""
+        if self._shot is None:
+            return
+        box_w = max(self.thumb.width(), 120)
+        shot = self._shot
+        if shot.width() > box_w or shot.height() > self.PREVIEW_H:
+            shot = shot.scaled(box_w, self.PREVIEW_H,
+                               Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.thumb.setPixmap(shot)
+
+    def resizeEvent(self, event):
+        # 좁은 창에서는 속성 패널이 줄어든다 — 미리보기도 따라 줄인다
+        super().resizeEvent(event)
+        self._draw_preview()
 
     def _detail(self, text: str, bad: bool = False) -> None:
         self.detail.setText(text)
