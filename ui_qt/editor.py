@@ -640,9 +640,14 @@ class EditorWindow(FramelessWindow):
 
     # ------------------------------------------------------------ 선택
 
-    def _on_selection(self, selected, deselected=None) -> None:
-        """캔버스에서 고른 노드를 속성 패널에 보여준다."""
-        nodes = selected if isinstance(selected, (list, tuple)) else []
+    def _on_selection(self, selected=None, deselected=None) -> None:
+        """캔버스에서 고른 노드를 속성 패널에 보여준다.
+
+        신호가 실어 보내는 것은 '이번에 새로 골라진 노드' 라, 이미 골라둔
+        노드를 다시 누르거나 끌면 빈 목록이 온다. 그것을 지금 선택으로
+        믿으면 속성 패널이 꺼져 버린다. 그래서 캔버스에 직접 물어본다.
+        """
+        nodes = self.ng.selected_nodes()
         if len(nodes) != 1:
             self.inspector.show_node(None, None)
             return

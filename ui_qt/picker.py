@@ -1,9 +1,13 @@
 # ui_qt/picker.py
-"""화면에서 좌표·색을 집는 오버레이.
+"""주 모니터에서 좌표·색·영역을 집는 오버레이.
 
 화면을 한 장 찍어 그대로 덮어 보여주고, 그 위에서 고르게 한다. 실시간 화면
 위에서 고르면 대상이 움직이거나 사라져서 집기 어렵다 — 정지된 그림 위에서
 고르는 편이 확실하다.
+
+주 모니터만 다룬다. 모니터마다 배율이 다르면 화면 좌표와 실제 픽셀이 어긋나
+여기서 집은 자리와 매크로가 누르는 자리가 달라지는데, 주 모니터로 한정하면
+그 어긋남이 아예 생기지 않는다.
 
     result = pick_from_screen(parent)
     if result:
@@ -22,7 +26,6 @@ from PySide6.QtGui import (
     QGuiApplication,
     QPainter,
     QPen,
-    QPixmap,
 )
 from PySide6.QtWidgets import QDialog
 
@@ -47,7 +50,7 @@ class ScreenPicker(QDialog):
         self.setCursor(Qt.CrossCursor)
         self.setMouseTracking(True)
 
-        self.shot, self.origin = self._grab_all_screens()
+        self.shot, self.origin = self._grab_main_screen()
         self.setGeometry(QRect(self.origin, self.shot.deviceIndependentSize().toSize()))
 
         self.cursor_at = QPoint(0, 0)
@@ -56,24 +59,10 @@ class ScreenPicker(QDialog):
     # ------------------------------------------------------------ 화면 찍기
 
     @staticmethod
-    def _grab_all_screens():
-        """모니터 전체를 한 장으로. 좌표가 음수인 배치도 그대로 담는다."""
-        screens = QGuiApplication.screens()
-        bounds = screens[0].geometry()
-        for screen in screens[1:]:
-            bounds = bounds.united(screen.geometry())
-
-        canvas = QPixmap(bounds.size())
-        canvas.fill(Qt.black)
-
-        painter = QPainter(canvas)
-        for screen in screens:
-            grabbed = screen.grabWindow(0)
-            spot = screen.geometry().topLeft() - bounds.topLeft()
-            painter.drawPixmap(spot, grabbed)
-        painter.end()
-
-        return canvas, bounds.topLeft()
+    def _grab_main_screen():
+        """주 모니터만 한 장 찍는다."""
+        screen = QGuiApplication.primaryScreen()
+        return screen.grabWindow(0), screen.geometry().topLeft()
 
     # ------------------------------------------------------------ 값 읽기
 
@@ -209,7 +198,7 @@ class ScreenPicker(QDialog):
 
 
 def pick_from_screen(parent=None) -> Optional[PickResult]:
-    """화면을 덮어 좌표·색을 고르게 한다. 취소하면 None."""
+    """주 모니터를 덮어 좌표·색을 고르게 한다. 취소하면 None."""
     picker = ScreenPicker(parent)
     if picker.exec() == QDialog.Accepted:
         return picker.result
@@ -220,7 +209,7 @@ def pick_from_screen(parent=None) -> Optional[PickResult]:
 
 
 class RegionPicker(ScreenPicker):
-    """끌어서 네모난 영역을 고른다. 정지된 화면 위에서 고르는 것은 같다."""
+    """끌어서 네모난 영역을 고른다. 주 모니터만 다루는 것도 같다."""
 
     MIN_SIDE = 4             # 이보다 작으면 잘못 누른 것으로 본다
 
@@ -321,7 +310,7 @@ class RegionPicker(ScreenPicker):
 
 
 def pick_region(parent=None) -> Optional[Tuple[int, int, int, int]]:
-    """화면을 덮어 영역을 고르게 한다. (x1, y1, x2, y2) 또는 None."""
+    """주 모니터를 덮어 영역을 고르게 한다. (x1, y1, x2, y2) 또는 None."""
     picker = RegionPicker(parent)
     if picker.exec() == QDialog.Accepted:
         return picker.region
