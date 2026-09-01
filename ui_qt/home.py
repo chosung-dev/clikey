@@ -1583,9 +1583,9 @@ class HomeWindow(FramelessWindow):
         elif self.folder_key == ALL_FOLDERS:
             text = "폴더를 고르면 그 폴더의 단축키가 걸립니다"
         elif count:
-            # 키 수만 적으면 "2개" 가 매크로 둘로 읽힌다. 매크로 하나에 실행·
-            # 종료 두 키가 걸리므로 어느 쪽 수인지 밝혀 적는다.
-            text = f"매크로 {self._bound_macros}개 · 단축키 {count}개 걸림"
+            # 키 수로 적으면 매크로 하나에 실행·종료 둘이 걸려 수가 두 배로
+            # 보인다. 세는 대상을 매크로로 둔다.
+            text = f"매크로 {self._bound_macros}개 활성화"
         else:
             text = "이 폴더에 걸린 단축키 없음"
 
