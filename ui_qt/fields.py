@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QKeySequence
 
 from core import hotkeys
@@ -298,11 +298,14 @@ class HotkeyField(QWidget):
 
 
 class KeyField(QWidget):
-    """키를 눌러 어떤 키를 보낼지 정한다.
+    """칸에 마우스를 올린 채 키를 누르면 그 키가 잡힌다.
 
     이름을 외워 치게 하면 "엔터" 처럼 틀리게 적어도 저장되고, 실행할 때가
     되어서야 아무 일도 일어나지 않는다. 직접 눌러 잡게 하고, 매크로가 보낼
     수 없는 키면 그 자리에서 알린다.
+
+    버튼을 거치지 않으므로 Esc 도 그냥 잡힌다. 그만두려면 마우스를 치우면
+    된다.
 
     조합키는 담지 않는다 — 누르고 있기 · 떼기 노드로 만들면 된다. 그래서
     Ctrl+C 를 누르면 C 만 잡힌다.
@@ -314,79 +317,83 @@ class KeyField(QWidget):
         Qt.Key_Shift: "shift", Qt.Key_Meta: "win",
     }
 
+    IDLE_NOTE = "칸에 마우스를 올리고 키를 누르세요"
+    ARMED_NOTE = "지금 누르는 키가 잡힙니다"
+
     def __init__(self, value, on_change: Setter):
         super().__init__()
         self.on_change = on_change
         self.value = hotkeys.single_key(value or "")
-        self.listening = False
+        self.armed = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(5)
 
-        row = QWidget()
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
-
         self.box = QFrame()
         self.box.setObjectName("ValueBox")
         self.box.setFixedHeight(32)
+        self.box.setCursor(Qt.PointingHandCursor)
+        self.box.installEventFilter(self)
         bl = QHBoxLayout(self.box)
         bl.setContentsMargins(9, 0, 9, 0)
         self.label = QLabel()
         bl.addWidget(self.label)
         bl.addStretch(1)
-        lay.addWidget(self.box, 1)
-
-        self.button = QPushButton("키 설정")
-        self.button.setObjectName("GhostBtn")
-        self.button.setFixedHeight(32)
-        self.button.setCursor(Qt.PointingHandCursor)
-        self.button.clicked.connect(self._toggle)
-        lay.addWidget(self.button)
-        root.addWidget(row)
+        root.addWidget(self.box)
 
         self.note = QLabel()
         self.note.setWordWrap(True)
-        self.note.hide()
         root.addWidget(self.note)
 
+        self._say(self.IDLE_NOTE)
         self._refresh()
 
+    # ------------------------------------------------------------ 화면
+
     def _refresh(self) -> None:
-        if self.listening:
-            self.label.setText("키를 누르세요…")
-            self.label.setStyleSheet(f"font-size: 12px; color: {T.ACCENT};")
-        else:
-            self.label.setText(hotkeys.display_key(self.value))
-            self.label.setStyleSheet(
-                f"font-family: '{T.mono_stack()}'; font-size: 12px;")
-        self.box.setProperty("listening", self.listening)
-        self.button.setText("취소" if self.listening else "키 설정")
+        self.label.setText(hotkeys.display_key(self.value))
+        self.label.setStyleSheet(
+            f"font-family: '{T.mono_stack()}'; font-size: 12px;"
+            + (f" color: {T.ACCENT};" if self.armed else ""))
+        self.box.setProperty("listening", self.armed)
         self.box.style().unpolish(self.box)
         self.box.style().polish(self.box)
 
     def _say(self, text: str, bad: bool = False) -> None:
-        self.note.setVisible(bool(text))
         self.note.setText(text)
-        self.note.setObjectName("DialogError" if bad else "DialogHint")
         self.note.setStyleSheet(
             f"font-size: 11px; color: {T.DANGER if bad else T.INK_4};")
 
-    def _toggle(self) -> None:
-        self.listening = not self.listening
-        if self.listening:
-            self._say("Esc 도 그대로 잡힙니다. 그만두려면 취소를 누르세요.")
-            self.setFocus(Qt.OtherFocusReason)
+    # ------------------------------------------------------------ 잡기
+
+    def eventFilter(self, obj, event):
+        if obj is self.box:
+            if event.type() == QEvent.Enter:
+                self._arm(True)
+            elif event.type() == QEvent.Leave:
+                self._arm(False)
+        return super().eventFilter(obj, event)
+
+    def hideEvent(self, event):
+        # 잡는 중에 속성 패널이 새로 그려지면 키를 붙든 채로 사라질 수 있다
+        self._arm(False)
+        super().hideEvent(event)
+
+    def _arm(self, on: bool) -> None:
+        if on == self.armed:
+            return
+        self.armed = on
+        if on:
             self.grabKeyboard()
+            self._say(self.ARMED_NOTE)
         else:
-            self._say("")
             self.releaseKeyboard()
+            self._say(self.IDLE_NOTE)
         self._refresh()
 
     def keyPressEvent(self, event):
-        if not self.listening:
+        if not self.armed:
             return super().keyPressEvent(event)
 
         code = event.key()
@@ -403,14 +410,12 @@ class KeyField(QWidget):
             return
 
         self.value = key
-        self.listening = False
-        self.releaseKeyboard()
         self._refresh()
         if code not in self.MODIFIERS and event.modifiers() & (
                 Qt.ControlModifier | Qt.AltModifier | Qt.ShiftModifier | Qt.MetaModifier):
             self._say("조합키는 담기지 않습니다 — 누르고 있기 · 떼기 노드로 만드세요.")
         else:
-            self._say("")
+            self._say(self.ARMED_NOTE)
         self.on_change(self.value)
 
 
