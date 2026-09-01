@@ -521,12 +521,24 @@ class Inspector(QWidget):
         self._changed(node, "color", rgb)
         self.show_node(node, self.graph, self.on_change)
 
+    @staticmethod
+    def _is_ref(pos) -> bool:
+        return isinstance(pos, dict) and isinstance(pos.get("x"), dict)
+
     def _changed(self, node: Node, key: str, value) -> None:
         # 기준 색이 바뀌면 허용 오차 견본도 따라가야 한다
         if key == "color" and self.tolerance is not None:
             self.tolerance.set_base(value)
+
+        # 좌표를 참조로 바꾸거나 직접 입력으로 되돌리면 칸 모양 자체가 달라진다.
+        # 값만 바꾸고 두면 바뀐 것이 화면에 보이지 않는다.
+        switched = key == "pos" and self._is_ref(node.params.get(key)) !=             self._is_ref(value)
+
         if self.on_change:
             self.on_change(node, key, value)
+
+        if switched:
+            self.show_node(node, self.graph, self.on_change)
 
     def _branches(self, node: Node, graph: Optional[Graph]) -> Optional[QWidget]:
         if graph is None or not node.ports:
