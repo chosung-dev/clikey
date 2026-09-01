@@ -694,6 +694,7 @@ class EditorWindow(FramelessWindow):
             return
 
         self.ng.clear_selection()
+        self._set_scene_picking(True)
         for node_id, ui in self.made.items():
             can = node_id in self._pick_targets
             ui.view.dimmed = not can
@@ -705,10 +706,22 @@ class EditorWindow(FramelessWindow):
             return
         self._pick_targets = set()
         self._pick_done = None
+        self._set_scene_picking(False)
         for ui in self.made.values():
             ui.view.dimmed = False
             ui.view.set_pickable(False)
         self._refresh_status()
+
+    def _set_scene_picking(self, on: bool) -> None:
+        """선이 마우스에 반응하지 않도록 캔버스에 표시해 둔다."""
+        viewer = self.ng.viewer()
+        scene = viewer.scene()
+        scene._clikey_picking = on
+        if on:
+            # 이미 켜져 있던 선은 꺼둔다
+            for pipe in viewer.all_pipes():
+                if not pipe.isSelected():
+                    pipe.reset()
 
     def _picking(self) -> bool:
         return bool(self._pick_targets)

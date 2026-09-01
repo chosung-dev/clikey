@@ -579,6 +579,38 @@ def port_color(name: str):
     return (*_rgb(hex_color), 255) if hex_color else None
 
 
+def scene_is_picking(item) -> bool:
+    """지금 이 캔버스가 '좌표를 가져올 노드 고르기' 중인가."""
+    scene = item.scene()
+    return bool(scene is not None and getattr(scene, "_clikey_picking", False))
+
+
+def _quiet_pipe_hover() -> None:
+    """좌표를 고르는 중에는 선이 마우스에 반응하지 않게 한다.
+
+    NodeGraphQt 는 선에 마우스가 스치면 강조색으로 켠다. 고를 노드를 찾아
+    화면을 훑는 동안 선이 계속 번쩍여서, 무엇을 눌러야 하는지 흐려진다.
+    """
+    if getattr(PipeItem, "_clikey_quiet_hover", False):
+        return
+
+    enter, leave = PipeItem.hoverEnterEvent, PipeItem.hoverLeaveEvent
+
+    def hover_enter(self, event):
+        if scene_is_picking(self):
+            return
+        return enter(self, event)
+
+    def hover_leave(self, event):
+        if scene_is_picking(self):
+            return
+        return leave(self, event)
+
+    PipeItem.hoverEnterEvent = hover_enter
+    PipeItem.hoverLeaveEvent = hover_leave
+    PipeItem._clikey_quiet_hover = True
+
+
 def _install_port_colors() -> None:
     """연결선을 출발한 포트 색으로 그린다.
 
@@ -739,6 +771,7 @@ def make_graph_widget() -> NodeGraph:
     _hide_pipe_arrows()
     _install_back_edge_routing()
     _install_port_colors()
+    _quiet_pipe_hover()
     _click_only_selects_pipes()
 
     ng = NodeGraph(layout_direction=LayoutDirectionEnum.VERTICAL.value)
