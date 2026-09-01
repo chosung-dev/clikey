@@ -28,6 +28,12 @@ RESIZE_MARGIN = 8          # 가장자리에서 리사이즈가 잡히는 두께
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWCP_ROUND = 2
 
+# 창 스타일 (가장자리를 끌어 크기를 바꾸려면 WS_THICKFRAME 이 있어야 한다)
+GWL_STYLE = -16
+WS_THICKFRAME = 0x00040000
+SWP_FRAMECHANGED = 0x0020
+SWP_NOSIZE, SWP_NOMOVE, SWP_NOZORDER, SWP_NOACTIVATE = 0x0001, 0x0002, 0x0004, 0x0010
+
 
 class _MSG(ctypes.Structure):
     _fields_ = [
@@ -55,6 +61,7 @@ class FramelessWindow(QWidget):
         super().__init__(parent)
         self.setWindowFlag(Qt.FramelessWindowHint, True)
         self._round_corners()
+        self._enable_resizing()
 
     # ------------------------------------------------------------ 끌 수 있는 영역
 
@@ -88,6 +95,34 @@ class FramelessWindow(QWidget):
         return widget.rect().contains(widget.mapFrom(self, pos))
 
     # ------------------------------------------------------------ 내부
+
+    def showEvent(self, event):
+        # Qt 가 창을 다시 만들면 스타일이 되돌아갈 수 있어 뜰 때마다 확인한다
+        super().showEvent(event)
+        self._enable_resizing()
+
+    def _enable_resizing(self) -> None:
+        """가장자리를 끌어 크기를 바꿀 수 있게 WS_THICKFRAME 을 붙인다.
+
+        WM_NCHITTEST 에 HTLEFT 같은 값을 돌려줘도, 창에 이 스타일이 없으면
+        Windows 는 크기를 바꾸지 않는다. 커서 모양만 바뀌고 끌리지 않는다.
+
+        Qt 의 FramelessWindowHint 가 비클라이언트 영역을 이미 없애 두어서,
+        이 스타일을 붙여도 테두리가 새로 생기지는 않는다.
+        """
+        try:
+            hwnd = wintypes.HWND(int(self.winId()))
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+            if style & WS_THICKFRAME:
+                return
+            user32.SetWindowLongW(hwnd, GWL_STYLE, style | WS_THICKFRAME)
+            user32.SetWindowPos(
+                hwnd, None, 0, 0, 0, 0,
+                SWP_FRAMECHANGED | SWP_NOSIZE | SWP_NOMOVE
+                | SWP_NOZORDER | SWP_NOACTIVATE)
+        except Exception:
+            pass
 
     def _round_corners(self) -> None:
         try:
