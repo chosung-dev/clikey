@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import hotkeys, prefs
+from core import hotkeys, prefs, runlog
 from core.graph import Graph
 from ui_qt import dialogs, node_view, theme as T
 from ui_qt.editor_panels import DRAG_PREFIX, Inspector, Palette
@@ -561,6 +561,9 @@ class EditorWindow(FramelessWindow):
         )
         if not started:
             return
+
+        # 편집기에서 돌린 것도 실행이다 — 목록의 마지막 실행에 남긴다
+        runlog.mark(self.path)
 
         self.run_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)

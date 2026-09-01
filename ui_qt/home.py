@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import hotkeys, library, prefs
+from core import hotkeys, library, prefs, runlog
 from core.graph import Graph
 from ui_qt import dialogs, theme as T
 from ui_qt.frameless import FramelessWindow
@@ -96,7 +96,7 @@ def load_macros() -> List[Macro]:
             name=entry.name,
             folder=entry.folder,
             nodes=entry.nodes,
-            last_run=entry.modified_text,
+            last_run=runlog.text(entry.path),
             shortcut=entry.start_key,
             stop_shortcut=entry.stop_key,
             path=entry.path,
@@ -469,7 +469,7 @@ class HeaderRow(QFrame):
         lay.addWidget(name, 1)
 
         if columns is None:
-            columns = list(zip(("단축키", "노드", "수정", "상태"), column_widths()))
+            columns = list(zip(("단축키", "노드", "마지막 실행", "상태"), column_widths()))
 
         for text, width in columns:
             label = QLabel(text)
@@ -595,6 +595,7 @@ class MacroRow(QFrame):
             last.setStyleSheet(f"font-size: 12px; color: {T.RUN};")
         elif dimmed:
             last.setObjectName("CellMuted")
+        self.last_cell = last
         lay.addWidget(self._cell(last, T.COL_LASTRUN))
 
         # 상태 — 실행 중에는 바꿔 끼울 수 있어야 하므로 자리를 들고 있는다
@@ -611,10 +612,18 @@ class MacroRow(QFrame):
 
     def set_running(self, running: bool) -> None:
         """실행 상태에 맞춰 행 모습을 바꾼다."""
-        self.macro.status = RUNNING if running else WAITING
+        if running:
+            self.macro.status = RUNNING
+        else:
+            self.macro.status = WAITING if self.macro.enabled else DISABLED
         self.setObjectName("RowOn" if running else "Row")
         self.style().unpolish(self)
         self.style().polish(self)
+
+        # 실행을 시작하면 "방금" 으로 바뀐다
+        self.last_cell.setText(self.macro.last_run)
+        self.last_cell.setStyleSheet(
+            f"font-size: 12px; color: {T.RUN};" if running else "")
 
         lay = self.status_slot.layout()
         old = lay.itemAt(0).widget()
@@ -992,6 +1001,7 @@ class HomeWindow(FramelessWindow):
             return
 
         self.running_paths.add(key)
+        macro.last_run = library.humanize(runlog.mark(macro.path))
         self._mark_running(macro, True)
 
     def stop_macro(self, macro: Macro) -> None:
@@ -1176,7 +1186,7 @@ class HomeWindow(FramelessWindow):
             return
 
         try:
-            library.rename_macro(macro.path, name)
+            runlog.rename(macro.path, library.rename_macro(macro.path, name))
         except OSError as exc:
             dialogs.alert(self, "바꿀 수 없음", f"{macro.name} → {name}\n\n{exc}")
             return
@@ -1194,7 +1204,7 @@ class HomeWindow(FramelessWindow):
         if self._editor_open_for(macro):
             return
         try:
-            library.move_macro(macro.path, folder)
+            runlog.rename(macro.path, library.move_macro(macro.path, folder))
         except FileExistsError:
             dialogs.alert(self, "옮길 수 없음",
                           f"‘{folder}’ 에 같은 이름의 매크로가 이미 있습니다.")
@@ -1216,6 +1226,7 @@ class HomeWindow(FramelessWindow):
 
         try:
             library.delete_macro(macro.path)
+            runlog.forget(macro.path)
         except (OSError, ValueError) as exc:
             dialogs.alert(self, "지울 수 없음", f"{macro.name}\n\n{exc}")
             return

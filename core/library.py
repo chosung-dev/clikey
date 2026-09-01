@@ -70,7 +70,7 @@ class MacroFile:
 
 
 def humanize(timestamp: float) -> str:
-    """파일 수정 시각을 사람이 읽는 표현으로."""
+    """시각을 사람이 읽는 표현으로. 0 이면 "—"."""
     if not timestamp:
         return "—"
 
@@ -78,6 +78,8 @@ def humanize(timestamp: float) -> str:
     now = datetime.now()
     delta = now - when
 
+    if delta.total_seconds() < 60:
+        return "방금"
     if delta.days == 0 and when.date() == now.date():
         return f"오늘 {when:%H:%M}"
     if delta.days <= 1:
