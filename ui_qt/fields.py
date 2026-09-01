@@ -298,14 +298,14 @@ class HotkeyField(QWidget):
 
 
 class KeyField(QWidget):
-    """칸에 마우스를 올린 채 키를 누르면 그 키가 잡힌다.
+    """칸을 눌러 고른 뒤 키를 누르면 그 키가 잡힌다.
 
     이름을 외워 치게 하면 "엔터" 처럼 틀리게 적어도 저장되고, 실행할 때가
     되어서야 아무 일도 일어나지 않는다. 직접 눌러 잡게 하고, 매크로가 보낼
     수 없는 키면 그 자리에서 알린다.
 
-    버튼을 거치지 않으므로 Esc 도 그냥 잡힌다. 그만두려면 마우스를 치우면
-    된다.
+    확정 버튼을 거치지 않으므로 Esc 도 그냥 잡힌다. 그만두려면 다른 곳을
+    누르면 된다.
 
     조합키는 담지 않는다 — 누르고 있기 · 떼기 노드로 만들면 된다. 그래서
     Ctrl+C 를 누르면 C 만 잡힌다.
@@ -317,7 +317,7 @@ class KeyField(QWidget):
         Qt.Key_Shift: "shift", Qt.Key_Meta: "win",
     }
 
-    IDLE_NOTE = "칸에 마우스를 올리고 키를 누르세요"
+    IDLE_NOTE = "칸을 누른 다음 원하는 키를 누르세요"
     ARMED_NOTE = "지금 누르는 키가 잡힙니다"
 
     def __init__(self, value, on_change: Setter):
@@ -325,6 +325,9 @@ class KeyField(QWidget):
         self.on_change = on_change
         self.value = hotkeys.single_key(value or "")
         self.armed = False
+        # 클릭으로만 고른다. Tab 차례에 끼면 노드를 고르자마자 저절로
+        # 골라져서, 누르는 키가 죄다 여기로 빨려 들어간다.
+        self.setFocusPolicy(Qt.ClickFocus)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -368,15 +371,19 @@ class KeyField(QWidget):
     # ------------------------------------------------------------ 잡기
 
     def eventFilter(self, obj, event):
-        if obj is self.box:
-            if event.type() == QEvent.Enter:
-                self._arm(True)
-            elif event.type() == QEvent.Leave:
-                self._arm(False)
+        if obj is self.box and event.type() == QEvent.MouseButtonPress:
+            self.setFocus(Qt.MouseFocusReason)
         return super().eventFilter(obj, event)
 
+    def focusInEvent(self, event):
+        self._arm(True)
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self._arm(False)
+        super().focusOutEvent(event)
+
     def hideEvent(self, event):
-        # 잡는 중에 속성 패널이 새로 그려지면 키를 붙든 채로 사라질 수 있다
         self._arm(False)
         super().hideEvent(event)
 
@@ -384,13 +391,23 @@ class KeyField(QWidget):
         if on == self.armed:
             return
         self.armed = on
-        if on:
-            self.grabKeyboard()
-            self._say(self.ARMED_NOTE)
-        else:
-            self.releaseKeyboard()
-            self._say(self.IDLE_NOTE)
+        self._say(self.ARMED_NOTE if on else self.IDLE_NOTE)
         self._refresh()
+
+    def event(self, event):
+        """잡는 동안에는 Tab 이나 편집기 단축키에 키를 빼앗기지 않는다.
+
+        Tab 은 Qt 가 포커스 이동으로 먼저 가져가고, 편집기의 한 글자 단축키
+        (F = 전체 보기)도 keyPressEvent 보다 앞서 돈다. 둘 다 여기서 막는다.
+        """
+        if self.armed:
+            if event.type() == QEvent.ShortcutOverride:
+                event.accept()
+                return True
+            if event.type() == QEvent.KeyPress:
+                self.keyPressEvent(event)
+                return True
+        return super().event(event)
 
     def keyPressEvent(self, event):
         if not self.armed:
