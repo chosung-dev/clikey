@@ -355,6 +355,8 @@ class Sidebar(QWidget):
         self.nav_items = {}
         self.setObjectName("Sidebar")
         self.setFixedWidth(T.SIDEBAR_W)
+        # 목록 위에 겹쳐 띄울 때 뒤가 비쳐 보이지 않도록 배경을 직접 칠하게 한다
+        self.setAttribute(Qt.WA_StyledBackground, True)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -751,8 +753,12 @@ class HomeWindow(FramelessWindow):
         self._stretch_added = False
         #: 지금 보이고 있는 표의 열 (창 폭에 따라 바뀐다)
         self._columns = visible_columns(1440)
+        #: 좁은 창에서 폴더 목록을 버튼으로 펼쳐 둔 상태인가
+        self._sidebar_open = False
+        #: 좁을 때는 목록을 밀어내지 않고 그 위에 겹쳐 띄운다
+        self._sidebar_floating = False
         # 창이 아주 작아지면 알아볼 수 없으므로 바닥을 정해둔다
-        self.setMinimumSize(720, 460)
+        self.setMinimumSize(560, 420)
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -762,6 +768,7 @@ class HomeWindow(FramelessWindow):
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+        self._root_layout = root
 
         self.binder = hotkeys.HotkeyBinder()
         self.runners = {}
@@ -1007,6 +1014,13 @@ class HomeWindow(FramelessWindow):
         self.sidebar.setFixedWidth(
             T.SIDEBAR_W_NARROW if width < T.BP_NARROW_SIDEBAR else T.SIDEBAR_W)
 
+        # 아주 좁으면 폴더 목록을 접는다. 버튼으로 다시 펼 수 있다.
+        cramped = width < T.BP_HIDE_SIDEBAR
+        self.folder_btn.setVisible(cramped)
+        if not cramped:
+            self._sidebar_open = False
+        self._set_sidebar_floating(cramped)
+
         columns = visible_columns(width)
         if columns != self._columns:
             self._columns = columns
@@ -1019,6 +1033,40 @@ class HomeWindow(FramelessWindow):
         # 창이 커지면 아래에 빈 자리가 생긴다 — 채울 행이 남았으면 더 만든다
         if self._pending_rows:
             self._fill_viewport(self._build_gen)
+
+    def _set_sidebar_floating(self, floating: bool) -> None:
+        """좁을 때는 사이드바를 레이아웃에서 빼내 목록 위에 겹쳐 띄운다.
+
+        레이아웃에 둔 채로 펼치면 목록을 옆으로 밀어내 제목과 검색칸이 잘린다.
+        겹쳐 띄우면 뒤쪽 목록은 폭을 그대로 유지한다.
+        """
+        if floating != self._sidebar_floating:
+            self._sidebar_floating = floating
+            if floating:
+                self._root_layout.removeWidget(self.sidebar)
+                self.sidebar.setParent(self)
+            else:
+                self.sidebar.setParent(None)
+                self._root_layout.insertWidget(0, self.sidebar)
+
+        if not floating:
+            self.sidebar.show()
+            return
+
+        self.sidebar.setVisible(self._sidebar_open)
+        if self._sidebar_open:
+            self.sidebar.setGeometry(0, 0, self.sidebar.width(), self.height())
+            self.sidebar.raise_()
+
+    def _toggle_sidebar(self) -> None:
+        self._sidebar_open = not self._sidebar_open
+        self._set_sidebar_floating(self._sidebar_floating)
+
+    def _collapse_sidebar_if_cramped(self) -> None:
+        """좁은 창에서 폴더를 고르면 목록을 다시 보여준다."""
+        if self._sidebar_open and self._sidebar_floating:
+            self._sidebar_open = False
+            self.sidebar.hide()
 
     def _on_scrolled(self, value: int) -> None:
         if not self._pending_rows:
@@ -1401,6 +1449,7 @@ class HomeWindow(FramelessWindow):
             item.set_selected(name == key)
         self._rebuild()
         self._rebind_hotkeys()
+        self._collapse_sidebar_if_cramped()
 
     def _update_status(self) -> None:
         """아래 상태바에 지금 걸린 단축키 상황을 보여준다."""
@@ -1518,6 +1567,17 @@ class HomeWindow(FramelessWindow):
         lay = QHBoxLayout(head)
         lay.setContentsMargins(T.PAGE_PAD, 0, T.PAGE_PAD, 18)
         lay.setSpacing(14)
+
+        self.folder_btn = QPushButton()
+        self.folder_btn.setObjectName("WinBtn")
+        self.folder_btn.setFixedSize(32, 32)
+        self.folder_btn.setIcon(T.icon_pixmap("menu", 16, T.INK_2, 1.6, self.ratio))
+        self.folder_btn.setIconSize(QSize(16, 16))
+        self.folder_btn.setCursor(Qt.PointingHandCursor)
+        self.folder_btn.setToolTip("폴더 목록")
+        self.folder_btn.clicked.connect(self._toggle_sidebar)
+        self.folder_btn.hide()
+        lay.addWidget(self.folder_btn, 0, Qt.AlignVCenter)
 
         left = QVBoxLayout()
         left.setSpacing(3)

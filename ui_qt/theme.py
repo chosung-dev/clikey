@@ -52,6 +52,7 @@ BP_HIDE_NODES = 1180
 BP_HIDE_LASTRUN = 1010
 BP_HIDE_SHORTCUT = 860
 BP_NARROW_SIDEBAR = 1120
+BP_HIDE_SIDEBAR = 780      # 이보다 좁으면 폴더 목록을 접고 버튼으로만 연다
 ROW_H = 62
 
 # 표 컬럼 폭 (이름은 남는 공간을 차지)
@@ -97,6 +98,7 @@ PATHS = {
     "search": '<circle cx="7.2" cy="7.2" r="4.4"/><path d="M10.5 10.5l3 3"/>',
     "plus": '<path d="M8 3.4v9.2M3.4 8h9.2"/>',
     "minus": '<path d="M3.4 8h9.2"/>',
+    "menu": '<path d="M2.6 4.4h10.8M2.6 8h10.8M2.6 11.6h10.8"/>',
     "folder": '<path d="M2.2 12.4V4.2a1 1 0 011-1h2.9l1.4 1.7h5.3a1 1 0 011 1v6.5a1 1 0 01-1 1H3.2a1 1 0 01-1-1z"/>',
     "archive": '<rect x="2.2" y="4.4" width="11.6" height="8.6" rx="1"/><path d="M1.4 4.4h13.2M6.6 7.6h2.8"/>',
     "all": '<rect x="2" y="2.6" width="12" height="10.8" rx="1.8"/><path d="M2 6.2h12"/>',
