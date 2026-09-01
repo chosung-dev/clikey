@@ -777,6 +777,7 @@ class HomeWindow(FramelessWindow):
         #: 좁을 때는 목록을 밀어내지 않고 그 위에 겹쳐 띄운다
         self._sidebar_floating = False
         #: 마우스 뒤로/앞으로 버튼용 이동 기록 (지나온 폴더)
+        self._bound_macros = 0       # 단축키가 걸린 매크로 수
         self._back_stack: List[str] = []
         self._forward_stack: List[str] = []
         # 창이 아주 작아지면 알아볼 수 없으므로 바닥을 정해둔다
@@ -1128,6 +1129,7 @@ class HomeWindow(FramelessWindow):
         if self.folder_key == ALL_FOLDERS or self._open_editors():
             self.binder.clear()
             self._failed_keys = []
+            self._bound_macros = 0
             self._update_status()
             return
 
@@ -1143,6 +1145,8 @@ class HomeWindow(FramelessWindow):
                                 lambda m=macro: self._hotkey_stop(m)))
 
         # 같은 키에 여러 개가 걸리면 함께 실행된다 (겹침을 막지 않는다)
+        self._bound_macros = sum(1 for m in here
+                                 if m.shortcut or m.stop_shortcut)
         self._failed_keys = self.binder.bind(entries)
         self._update_status()
 
@@ -1579,7 +1583,9 @@ class HomeWindow(FramelessWindow):
         elif self.folder_key == ALL_FOLDERS:
             text = "폴더를 고르면 그 폴더의 단축키가 걸립니다"
         elif count:
-            text = f"전역 단축키 {count}개 활성"
+            # 키 수만 적으면 "2개" 가 매크로 둘로 읽힌다. 매크로 하나에 실행·
+            # 종료 두 키가 걸리므로 어느 쪽 수인지 밝혀 적는다.
+            text = f"매크로 {self._bound_macros}개 · 단축키 {count}개 걸림"
         else:
             text = "이 폴더에 걸린 단축키 없음"
 
