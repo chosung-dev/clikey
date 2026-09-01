@@ -1,12 +1,13 @@
 # ui_qt/home.py
-"""홈 화면 — 매크로 목록.
+"""홈 화면 — 폴더와 매크로 목록.
 
-지금은 표시용 샘플 데이터를 쓴다. 실제 저장소가 정해지면 `load_macros()` 만
-바꾸면 되도록 화면과 데이터를 갈라놨다.
+디스크의 매크로 폴더를 그대로 읽어 보여주고(`load_macros()`), 지금 보고 있는
+폴더의 매크로에만 전역 단축키를 걸어 여기서 바로 돌린다.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QEvent, QRect, QSize, QTimer, Qt, Signal
@@ -1122,16 +1123,16 @@ class HomeWindow(FramelessWindow):
         폴더를 옮기면 이전 폴더 키는 풀린다. 그래야 폴더마다 같은 키를 써도
         서로 부딪히지 않는다.
         """
-        if self.folder_key == ALL_FOLDERS:
+        # 편집기가 하나라도 열려 있으면 이 화면의 단축키는 쉰다. 편집 중에는
+        # 그쪽 키만 쓰는 편이 헷갈리지 않는다.
+        if self.folder_key == ALL_FOLDERS or self._open_editors():
             self.binder.clear()
+            self._failed_keys = []
             self._update_status()
             return
 
-        # 편집기가 열려 있는 매크로는 그쪽이 단축키를 맡는다. 여기서도 걸면
-        # 한 번 눌러 두 번 실행된다.
         here = [m for m in self.macros
-                if m.folder == self.folder_key and m.enabled
-                and not self._has_open_editor(m)]
+                if m.folder == self.folder_key and m.enabled]
         entries = []
         for macro in here:
             if macro.shortcut:
@@ -1312,6 +1313,14 @@ class HomeWindow(FramelessWindow):
         """편집기가 떠 있는가. 알림은 띄우지 않는다."""
         editor = self.editors.get(str(macro.path))
         return editor is not None and editor.isVisible()
+
+    def _open_editors(self) -> List[str]:
+        """지금 열려 있는 편집기의 매크로 이름."""
+        names = []
+        for path, editor in self.editors.items():
+            if editor is not None and editor.isVisible():
+                names.append(Path(path).stem)
+        return names
 
     def _editor_open_for(self, macro: Macro) -> bool:
         """편집기에서 열려 있으면 파일을 건드리지 않는다."""
@@ -1562,7 +1571,12 @@ class HomeWindow(FramelessWindow):
     def _update_status(self) -> None:
         """아래 상태바에 지금 걸린 단축키 상황을 보여준다."""
         count = len(self.binder.bound)
-        if self.folder_key == ALL_FOLDERS:
+        editing = self._open_editors()
+        if editing:
+            what = (f"‘{editing[0]}’ 편집 중" if len(editing) == 1
+                    else f"편집기 {len(editing)}개 열림")
+            text = f"{what} — 이 화면의 단축키는 쉽니다"
+        elif self.folder_key == ALL_FOLDERS:
             text = "폴더를 고르면 그 폴더의 단축키가 걸립니다"
         elif count:
             text = f"전역 단축키 {count}개 활성"
