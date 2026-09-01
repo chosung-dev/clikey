@@ -714,7 +714,7 @@ class ImageField(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
         for label, slot in (("파일 고르기", self._browse),
-                            ("붙여넣기", self._paste)):
+                            ("클립보드 이미지", self._paste)):
             btn = QPushButton(label)
             btn.setObjectName("GhostBtn")
             btn.setFixedHeight(30)

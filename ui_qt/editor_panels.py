@@ -339,7 +339,7 @@ def field(label_text: str, value_widget: QWidget, hint: str = "") -> QWidget:
 
 
 def port_glyph(port: str, ratio: float) -> QWidget:
-    """참/거짓을 캔버스와 같은 기호로."""
+    """있음/없음을 캔버스와 같은 기호로."""
     truthy = port in ("true", "loop")
     color = T.RUN if truthy else T.INK_4
     glyph = "check" if truthy else "cross"
@@ -358,7 +358,7 @@ def port_glyph(port: str, ratio: float) -> QWidget:
     return holder
 
 
-PORT_NAME = {"next": "다음", "true": "참", "false": "거짓",
+PORT_NAME = {"next": "다음", "true": "있음", "false": "없음",
              "loop": "반복", "done": "빠져나감"}
 
 

@@ -47,7 +47,7 @@ LABEL = {
     "mouse_down": "마우스 누르기", "mouse_up": "마우스 떼기",
     "key_press": "키 누르기", "key_down": "키 누르고 있기", "key_up": "키 떼기",
     "delay": "대기",
-    "image_match": "이미지 있음", "rgb_match": "색상 일치",
+    "image_match": "이미지 검색", "rgb_match": "색상 일치",
     "loop": "반복",
 }
 
@@ -452,7 +452,7 @@ def _install_back_edge_routing() -> None:
 
 
 #: 일이 이어지는 길은 모두 초록(기본색)이고, 비껴가는 갈래만 회색이다.
-#: 예전에 붙여 두었던 "참"/"거짓" 글자를 뺀 뒤로 둘이 구분되지 않았다.
+#: 예전에 붙여 두었던 갈래 이름을 뺀 뒤로 둘이 구분되지 않았다.
 #: 여기 없는 포트(다음 · 참 · 반복 · 완료)는 기본색을 그대로 쓴다.
 PORT_COLORS = {
     "false": T.INK_3,
@@ -468,7 +468,7 @@ def port_color(name: str):
 def _install_port_colors() -> None:
     """연결선을 출발한 포트 색으로 그린다.
 
-    NodeGraphQt 는 모든 선을 한 색으로 그려서, 조건 노드의 참·거짓 두 선이
+    NodeGraphQt 는 모든 선을 한 색으로 그려서, 조건 노드의 두 갈래 선이
     똑같이 보였다. 어느 쪽이 참인지 보드에서 알 수 없다.
     """
     if getattr(PipeItem, "_clikey_port_colors", False):

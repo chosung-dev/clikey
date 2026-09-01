@@ -17,7 +17,7 @@ from core.graph import Graph, GraphExecutor, StopReason
 from core.mouse import get_mouse_position
 
 
-PORT_MARK = {"true": "참", "false": "거짓", "loop": "반복", "done": "빠져나감", "next": ""}
+PORT_MARK = {"true": "있음", "false": "없음", "loop": "반복", "done": "빠져나감", "next": ""}
 
 
 def build_graph(probe, actual_rgb, move: bool):
