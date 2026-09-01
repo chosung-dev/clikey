@@ -409,6 +409,7 @@ class Inspector(QWidget):
         self.ratio = ratio
         self.setObjectName("Panel")
         self.setFixedWidth(INSPECTOR_W)
+        self.tolerance = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -461,6 +462,7 @@ class Inspector(QWidget):
         self._clear(self.head_lay)
         self._clear(self.body_lay)
         self.on_change = on_change
+        self.tolerance = None
 
         if node is None:
             title = QLabel("속성")
@@ -515,20 +517,28 @@ class Inspector(QWidget):
             return [label]
 
         out: List[QWidget] = []
+        self.tolerance = None
         for key, label, kind, options, hint in specs:
             if kind == "point":
                 options = dict(options,
                                sources=self._locator_sources(node, graph))
+            elif kind == "tolerance":
+                options = dict(options, base=node.params.get("color"))
             widget = build_widget(
                 kind,
                 node.params.get(key, DEFAULTS.get(node.type, {}).get(key)),
                 options,
                 lambda value, k=key: self._changed(node, k, value),
             )
+            if kind == "tolerance":
+                self.tolerance = widget
             out.append(field(label, widget, hint))
         return out
 
     def _changed(self, node: Node, key: str, value) -> None:
+        # 기준 색이 바뀌면 허용 오차 견본도 따라가야 한다
+        if key == "color" and self.tolerance is not None:
+            self.tolerance.set_base(value)
         if self.on_change:
             self.on_change(node, key, value)
 

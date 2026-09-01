@@ -91,6 +91,28 @@ class NumberField(QLineEdit):
         on_change(value)
 
 
+class UnitField(QWidget):
+    """숫자 칸 옆에 단위를 붙인다.
+
+    NumberField 의 suffix 는 placeholder 로만 쓰여 값이 있으면 사라졌다.
+    "0.03" 만 놓여 있으면 초인지 밀리초인지 알 수 없다.
+    """
+
+    def __init__(self, value, on_change: Setter, unit: str, **number_kwargs):
+        super().__init__()
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        self.edit = NumberField(value, on_change, **number_kwargs)
+        lay.addWidget(self.edit, 1)
+
+        tag = QLabel(unit)
+        tag.setStyleSheet(f"font-size: 12px; color: {T.INK_4};")
+        lay.addWidget(tag)
+
+
 class PercentField(QWidget):
     """0~1 로 담기는 값을 백분율로 보여준다. 0.9 보다 90% 가 읽기 쉽다."""
 
@@ -503,6 +525,74 @@ class KeyField(QWidget):
         self.on_change(self.value)
 
 
+class ToleranceField(QWidget):
+    """허용 오차. 그 폭이 실제로 어느 정도인지 색으로 보여준다.
+
+    "12" 가 눈에 띄는 차이인지 아닌지는 숫자만 봐서는 알 수 없다. 기준 색을
+    좌우로 그만큼 흔든 견본을 늘어놓으면 한눈에 가늠된다.
+    """
+
+    SWATCHES = 5
+    SWATCH_H = 22
+
+    def __init__(self, value, on_change: Setter, base=None,
+                 minimum: int = 0, maximum: int = 255):
+        super().__init__()
+        self.on_change = on_change
+        self.base = list(base) if isinstance(base, (list, tuple)) and len(base) == 3             else [255, 255, 255]
+        try:
+            self.value = int(value)
+        except (TypeError, ValueError):
+            self.value = 0
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+
+        self.edit = NumberField(self.value, self._changed,
+                                minimum=minimum, maximum=maximum)
+        root.addWidget(self.edit)
+
+        self.strip = QWidget()
+        self.strip.setFixedHeight(self.SWATCH_H)
+        strip_lay = QHBoxLayout(self.strip)
+        strip_lay.setContentsMargins(0, 0, 0, 0)
+        strip_lay.setSpacing(2)
+        self.cells = []
+        for _ in range(self.SWATCHES):
+            cell = QFrame()
+            cell.setFixedHeight(self.SWATCH_H)
+            strip_lay.addWidget(cell, 1)
+            self.cells.append(cell)
+        root.addWidget(self.strip)
+
+        self._refresh()
+
+    def set_base(self, rgb) -> None:
+        """기준 색이 바뀌면 견본도 따라간다."""
+        if isinstance(rgb, (list, tuple)) and len(rgb) == 3:
+            self.base = list(rgb)
+            self._refresh()
+
+    def _changed(self, value) -> None:
+        self.value = int(value)
+        self._refresh()
+        self.on_change(self.value)
+
+    def _refresh(self) -> None:
+        span = self.value
+        middle = (self.SWATCHES - 1) / 2
+        for i, cell in enumerate(self.cells):
+            shift = round((i - middle) / middle * span) if middle else 0
+            rgb = tuple(max(0, min(255, c + shift)) for c in self.base)
+            # 가운데 칸이 기준 색 — 테두리를 조금 더 진하게
+            edge = "rgba(27,30,35,0.35)" if i == middle else "rgba(27,30,35,0.12)"
+            cell.setStyleSheet(
+                f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]});"
+                f"border: 1px solid {edge}; border-radius: 3px;")
+            cell.setToolTip(f"{rgb[0]}, {rgb[1]}, {rgb[2]}")
+
+
 class ColorField(QWidget):
     def __init__(self, color, on_change: Setter):
         super().__init__()
@@ -767,7 +857,7 @@ class RegionField(QWidget):
 
 # ---------------------------------------------------------------- 노드별 필드
 
-BUTTONS = [("left", "좌클릭"), ("right", "우클릭")]
+BUTTONS = [("left", "좌클릭"), ("right", "우클릭"), ("middle", "휠클릭")]
 
 # (파라미터 키, 라벨, 종류, 옵션, 도움말)
 Spec = Tuple[str, str, str, Dict[str, Any], str]
@@ -777,12 +867,12 @@ FIELDS: Dict[str, List[Spec]] = {
     "start": [
         ("hotkey", "실행 단축키", "hotkey", {},
          "이 폴더를 보고 있을 때 이 키로 매크로를 실행합니다"),
-        ("step_delay", "노드 사이 간격", "number",
-         {"decimals": 2, "minimum": 0, "maximum": 10, "suffix": "초"},
+        ("step_delay", "노드 사이 간격", "unit",
+         {"decimals": 2, "minimum": 0, "maximum": 10, "unit": "초"},
          "노드를 하나 실행한 뒤 쉬는 시간"),
-        ("mouse_move_duration", "마우스 이동 시간", "number",
-         {"decimals": 2, "minimum": 0, "maximum": 5, "suffix": "초"},
-         "0 이면 좌표로 즉시 이동, 값을 올리면 부드럽게 이동합니다"),
+        ("mouse_move_duration", "마우스 이동 시간", "unit",
+         {"decimals": 2, "minimum": 0, "maximum": 5, "unit": "초"},
+         "0 초면 좌표로 곧바로 옮깁니다. 0.3 초쯤 주면 사람이 옮긴 것처럼 보입니다."),
     ],
     "stop": [
         ("hotkey", "종료 단축키", "hotkey", {},
@@ -803,8 +893,8 @@ FIELDS: Dict[str, List[Spec]] = {
     "key_up": [("key", "뗄 키", "key", {}, "")],
 
     "delay": [
-        ("seconds", "대기 시간", "number",
-         {"decimals": 2, "minimum": 0, "maximum": 3600, "suffix": "초"}, "초 단위"),
+        ("seconds", "대기 시간", "unit",
+         {"decimals": 2, "minimum": 0, "maximum": 3600, "unit": "초"}, ""),
     ],
     "loop": [
         ("max", "반복 횟수", "number", {"minimum": 0, "maximum": 1000000},
@@ -813,8 +903,8 @@ FIELDS: Dict[str, List[Spec]] = {
     "rgb_match": [
         ("pos", "좌표", "point", {}, ""),
         ("color", "색상", "color", {}, ""),
-        ("tolerance", "허용 오차", "number", {"minimum": 0, "maximum": 255},
-         "0 이면 색이 정확히 같아야 합니다"),
+        ("tolerance", "허용 오차", "tolerance", {"minimum": 0, "maximum": 255},
+         "아래 견본 범위 안이면 같은 색으로 봅니다"),
     ],
     "image_match": [
         ("template", "템플릿 이미지", "image", {}, ""),
@@ -864,6 +954,19 @@ def build_widget(kind: str, value, options: Dict[str, Any], on_change: Setter) -
         return ImageField(str(value or ""), on_change)
     if kind == "region":
         return RegionField(value, on_change)
+    if kind == "unit":
+        return UnitField(
+            value, on_change, options.get("unit", ""),
+            decimals=options.get("decimals", 0),
+            minimum=options.get("minimum", 0),
+            maximum=options.get("maximum", 1e9),
+        )
+    if kind == "tolerance":
+        return ToleranceField(
+            value, on_change, base=options.get("base"),
+            minimum=options.get("minimum", 0),
+            maximum=options.get("maximum", 255),
+        )
     if kind == "percent":
         return PercentField(
             value, on_change,
