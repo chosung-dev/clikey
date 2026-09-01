@@ -32,6 +32,9 @@ INK_5 = "#C8CCD4"
 ACCENT = "#3A5BC7"
 ACCENT_BG = "#EDF1FB"
 RUN = "#1F8A70"
+#: 편집기 연결선. RUN 을 그대로 쓰면 선이 온통 쨍해 노드보다 먼저 눈에 든다.
+#: 흐름이 읽히는 정도의 초록으로만 낮춘다.
+FLOW = "#8FB3A8"
 RUN_DEEP = "#1B6B58"
 RUN_BG = "#E4F1EC"
 DANGER = "#C4453D"

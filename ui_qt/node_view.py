@@ -327,7 +327,7 @@ def _theme_pipe_constants() -> None:
     보여 어쩔 수 없이 쓰는 우회다.
     """
     for member, color in (
-        (PipeEnum.COLOR, (*_rgb(T.RUN), 255)),
+        (PipeEnum.COLOR, (*_rgb(T.FLOW), 255)),
         (PipeEnum.HIGHLIGHT_COLOR, (*_rgb(T.ACCENT), 255)),
         (PipeEnum.ACTIVE_COLOR, (*_rgb(T.ACCENT), 255)),
     ):
