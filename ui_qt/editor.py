@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
@@ -79,6 +79,13 @@ class StateIconButton(QPushButton):
 
 
 class EditorWindow(FramelessWindow):
+    # 단축키 콜백은 keyboard 라이브러리의 다른 스레드에서 온다. Qt 신호로
+    # 넘겨야 UI 스레드에서 실행된다 (홈 화면과 같은 이유).
+    hotkey_run = Signal()
+    hotkey_stop = Signal()
+    #: 창이 실제로 닫혔을 때. destroyed 는 C++ 쪽을 허무는 중에 오므로,
+    #: 그때 홈 화면을 건드리면 이미 지워진 위젯을 만질 수 있다.
+    closed = Signal()
     """매크로 하나를 여는 창."""
 
     def __init__(self, path: Path, ratio: float = 1.0, parent=None):
@@ -106,6 +113,9 @@ class EditorWindow(FramelessWindow):
         self._dropped_edges = self._undrawn_edges()
         self._pick_targets = set()      # 좌표를 가져올 후보 (고르는 중일 때만)
         self._pick_done = None
+        self.binder = hotkeys.HotkeyBinder()
+        self.hotkey_run.connect(self.run_macro)
+        self.hotkey_stop.connect(self.stop_macro)
         self.by_ui_name = {ui.name(): nid for nid, ui in self.made.items()}
 
         middle = QHBoxLayout()
@@ -144,7 +154,6 @@ class EditorWindow(FramelessWindow):
         self.ng.port_disconnected.connect(self._after_change)
         self.ng.data_dropped.connect(self.drop_node)
 
-        self._macro_shortcuts = []
         self.refresh_macro_keys()
 
         self._active_node = None
@@ -537,19 +546,14 @@ class EditorWindow(FramelessWindow):
         self.stop_btn.setText(f"  중지  {hotkeys.display(stop_key)}"
                               if stop_key else "  중지")
 
-        for shortcut in self._macro_shortcuts:
-            shortcut.setParent(None)
-            shortcut.deleteLater()
-        self._macro_shortcuts = []
-
-        for key, action in ((run_key, self.run_macro), (stop_key, self.stop_macro)):
-            sequence = hotkeys.qt_sequence(key)
-            if not sequence:
-                continue
-            try:
-                self._macro_shortcuts.append(QShortcut(QKeySequence(sequence), self, action))
-            except Exception:
-                pass
+        # 창에만 거는 단축키로는 편집기가 앞에 있을 때만 먹는다. 매크로를
+        # 돌려보는 동안에는 대개 다른 창을 보고 있으므로 전역으로 건다.
+        entries = []
+        if run_key:
+            entries.append((run_key, "실행", self.hotkey_run.emit))
+        if stop_key:
+            entries.append((stop_key, "중지", self.hotkey_stop.emit))
+        self.binder.bind(entries)
 
         # 실행·중지 키는 상단 버튼에 이미 적혀 있으므로 여기서 되풀이하지 않는다
 
@@ -897,7 +901,9 @@ class EditorWindow(FramelessWindow):
             return
 
         if not self.dirty:
+            self.binder.clear()
             event.accept()
+            self.closed.emit()
             return
 
         answer = dialogs.confirm_save(
@@ -910,3 +916,5 @@ class EditorWindow(FramelessWindow):
         if answer == "save":
             self.save()
         event.accept()
+        self.binder.clear()
+        self.closed.emit()

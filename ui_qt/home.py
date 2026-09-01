@@ -1127,8 +1127,11 @@ class HomeWindow(FramelessWindow):
             self._update_status()
             return
 
+        # 편집기가 열려 있는 매크로는 그쪽이 단축키를 맡는다. 여기서도 걸면
+        # 한 번 눌러 두 번 실행된다.
         here = [m for m in self.macros
-                if m.folder == self.folder_key and m.enabled]
+                if m.folder == self.folder_key and m.enabled
+                and not self._has_open_editor(m)]
         entries = []
         for macro in here:
             if macro.shortcut:
@@ -1305,6 +1308,11 @@ class HomeWindow(FramelessWindow):
 
     # ------------------------------------------------------------ 매크로 관리
 
+    def _has_open_editor(self, macro: Macro) -> bool:
+        """편집기가 떠 있는가. 알림은 띄우지 않는다."""
+        editor = self.editors.get(str(macro.path))
+        return editor is not None and editor.isVisible()
+
     def _editor_open_for(self, macro: Macro) -> bool:
         """편집기에서 열려 있으면 파일을 건드리지 않는다."""
         editor = self.editors.get(str(macro.path))
@@ -1470,9 +1478,15 @@ class HomeWindow(FramelessWindow):
             return
 
         editor = EditorWindow(macro.path, ratio=self.ratio)
+        editor.closed.connect(lambda k=key: self._editor_closed(k))
         editor.destroyed.connect(lambda *_: self.editors.pop(key, None))
         self.editors[key] = editor
         editor.show()
+        self._rebind_hotkeys()      # 이 매크로 키는 편집기가 맡는다
+
+    def _editor_closed(self, key: str) -> None:
+        self.editors.pop(key, None)
+        self._rebind_hotkeys()      # 맡겨두었던 키를 도로 가져온다
 
     # ------------------------------------------------------------ 앞뒤 이동
 
