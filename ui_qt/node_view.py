@@ -197,6 +197,14 @@ class ClikeyNodeItem(NodeItem):
             _guides(self.scene()).hide()
         super().mouseReleaseEvent(event)
 
+    def setToolTip(self, text):
+        """마우스를 올렸을 때 나오는 안내를 없앤다.
+
+        NodeGraphQt 는 노드 이름(우리 쪽에서는 내부 id)과 종류를 띄우는데,
+        카드에 이미 제목과 설명이 적혀 있어 알려줄 것이 없다.
+        """
+        super().setToolTip("")
+
     def paint(self, painter, option, widget=None):
         painter.save()
         painter.setRenderHint(painter.RenderHint.Antialiasing, True)
