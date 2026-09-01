@@ -103,6 +103,7 @@ class EditorWindow(FramelessWindow):
 
         self.ng = node_view.make_graph_widget()
         self.made = node_view.populate(self.model, self.ng)
+        self._dropped_edges = self._undrawn_edges()
         self.by_ui_name = {ui.name(): nid for nid, ui in self.made.items()}
 
         middle = QHBoxLayout()
@@ -550,6 +551,35 @@ class EditorWindow(FramelessWindow):
         self.palette.set_narrow(narrow)
         self.inspector.set_narrow(narrow)
 
+    def _undrawn_edges(self) -> list:
+        """파일에는 있는데 캔버스에 그려지지 않은 연결.
+
+        NodeGraphQt 는 잇지 못해도 예외를 내지 않고 조용히 넘어가거나 기존
+        연결을 갈아치우기도 한다. 그래서 실패를 붙잡는 대신, 그려진 결과와
+        원래 모델을 견줘 본다.
+        """
+        drawn = {(e.src, e.dst, e.port) for e in node_view.read_edges(self.made)}
+        return [e for e in self.model.edges
+                if (e.src, e.dst, e.port) not in drawn]
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._dropped_edges:
+            dropped, self._dropped_edges = self._dropped_edges, []
+            QTimer.singleShot(0, lambda n=len(dropped): self._warn_dropped(n))
+
+    def _warn_dropped(self, count: int) -> None:
+        """그리지 못한 연결이 있으면 저장 전에 알린다.
+
+        저장할 때는 캔버스가 진실이라, 알리지 않고 두면 다음 저장에서 그
+        연결이 소리 없이 사라진다.
+        """
+        dialogs.alert(
+            self, "그리지 못한 연결",
+            f"이 매크로의 연결 {count}개를 캔버스에 그릴 수 없었습니다.\n"
+            "한 출력에서 두 갈래로 나가는 등 지금 규칙에 맞지 않는 연결입니다.\n\n"
+            "이대로 저장하면 그 연결은 사라집니다.")
+
     def run_macro(self) -> None:
         if self.runner.running:
             return
@@ -733,10 +763,17 @@ class EditorWindow(FramelessWindow):
         return bar
 
     def _refresh_status(self) -> None:
+        self.sync_from_canvas()
         problems = self.model.validate()
         text = f"노드 {len(self.model.nodes)} · 연결 {len(self.model.edges)}"
         if problems:
             text += f"  ·  문제 {len(problems)}건"
+
+        # 시작에서 닿지 않는 노드는 아무리 잘 만들어도 실행되지 않는다.
+        # 검사에는 걸리지 않으므로(틀린 그래프는 아니다) 여기서 알려준다.
+        stranded = self.model.unreachable_ids()
+        if stranded:
+            text += f"  ·  실행되지 않는 노드 {len(stranded)}개"
         self.status.setText(text)
 
     # ------------------------------------------------------------ 창 조작

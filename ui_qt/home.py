@@ -767,6 +767,12 @@ class HomeWindow(FramelessWindow):
         # 창이 아주 작아지면 알아볼 수 없으므로 바닥을 정해둔다
         self.setMinimumSize(560, 420)
 
+        # 실행 결과를 상태바에 잠깐 띄웠다가 되돌리는 타이머
+        self._result_timer = QTimer(self)
+        self._result_timer.setSingleShot(True)
+        self._result_timer.setInterval(6000)
+        self._result_timer.timeout.connect(self._update_status)
+
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(180)
@@ -1174,6 +1180,7 @@ class HomeWindow(FramelessWindow):
     def _on_run_finished(self, key: str, result) -> None:
         self.running_paths.discard(key)
         self.last_results[key] = result
+        self._report_result(key, result)
         for macro in self.macros:
             if str(macro.path) == key:
                 self._mark_running(macro, False)
@@ -1501,6 +1508,22 @@ class HomeWindow(FramelessWindow):
         self._rebuild()
         self._rebind_hotkeys()
         self._collapse_sidebar_if_cramped()
+
+    def _report_result(self, key: str, result) -> None:
+        """끝난 결과를 상태바에 잠깐 보여준다.
+
+        단축키로 돌릴 때는 이 창을 보고 있지 않기 마련이라, 오류로 멈춰도
+        행이 대기 중으로 돌아갈 뿐 아무 말이 없었다.
+        """
+        from ui_qt.runner import describe
+
+        name = next((m.name for m in self.macros if str(m.path) == key), "매크로")
+        self.status_text.setText(f"{name} — {describe(result)}")
+        self.status_dot.setStyleSheet(
+            f"background: {T.DANGER if result.error else T.INK_4};"
+            "border-radius: 3px;")
+        # 잠깐 보여준 뒤 평소 표시로 돌아간다
+        self._result_timer.start()
 
     def _update_status(self) -> None:
         """아래 상태바에 지금 걸린 단축키 상황을 보여준다."""
