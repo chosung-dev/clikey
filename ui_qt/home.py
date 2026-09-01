@@ -44,6 +44,7 @@ ALL_FOLDERS = "\x00all"          # 사이드바 "전체" 를 가리키는 표시
 FIRST_CHUNK = 24
 NEXT_CHUNK = 24
 SCROLL_MARGIN = 240              # 바닥에서 이만큼 남으면 다음 묶음을 만든다
+HISTORY_LIMIT = 50               # 뒤로가기로 되짚을 수 있는 폴더 수
 
 
 def clear_layout(layout) -> None:
@@ -760,6 +761,9 @@ class HomeWindow(FramelessWindow):
         self._drawer_open = False
         #: 좁을 때는 목록을 밀어내지 않고 그 위에 겹쳐 띄운다
         self._sidebar_floating = False
+        #: 마우스 뒤로/앞으로 버튼용 이동 기록 (지나온 폴더)
+        self._back_stack: List[str] = []
+        self._forward_stack: List[str] = []
         # 창이 아주 작아지면 알아볼 수 없으므로 바닥을 정해둔다
         self.setMinimumSize(560, 420)
 
@@ -1449,7 +1453,47 @@ class HomeWindow(FramelessWindow):
         self.editors[key] = editor
         editor.show()
 
-    def _on_folder(self, key: str) -> None:
+    # ------------------------------------------------------------ 앞뒤 이동
+
+    def mousePressEvent(self, event):
+        """마우스 옆 버튼으로 지나온 폴더를 오간다."""
+        if event.button() == Qt.BackButton:
+            self.go_back()
+            return
+        if event.button() == Qt.ForwardButton:
+            self.go_forward()
+            return
+        super().mousePressEvent(event)
+
+    def go_back(self) -> None:
+        # 검색 중이었다면 그게 가장 최근 이동이다 — 검색부터 지운다
+        if self.query:
+            self._clear_search()
+            return
+        if not self._back_stack:
+            return
+        self._forward_stack.append(self.folder_key)
+        self._on_folder(self._back_stack.pop(), record=False)
+
+    def go_forward(self) -> None:
+        if not self._forward_stack:
+            return
+        self._back_stack.append(self.folder_key)
+        self._on_folder(self._forward_stack.pop(), record=False)
+
+    def _clear_search(self) -> None:
+        self._search_timer.stop()
+        self._pending_query = ""
+        self.search_box.edit.clear()
+        if self.query:
+            self.query = ""
+            self._rebuild()
+
+    def _on_folder(self, key: str, record: bool = True) -> None:
+        if record and key != self.folder_key:
+            self._back_stack.append(self.folder_key)
+            del self._back_stack[:-HISTORY_LIMIT]
+            self._forward_stack.clear()
         self.folder_key = key
         # 폴더 행에서도 들어오므로 사이드바 선택을 맞춰준다
         for name, item in self.sidebar.nav_items.items():
