@@ -578,9 +578,29 @@ class EditorWindow(FramelessWindow):
     def eventFilter(self, obj, event):
         if (event.type() == QEvent.MouseButtonPress
                 and event.button() == Qt.MiddleButton):
-            self.delete_selected()
+            self._delete_under_cursor(event.position().toPoint())
             return True         # 여기서 멈춘다 (기본 동작인 화면 끌기 대신)
         return super().eventFilter(obj, event)
+
+    def _delete_under_cursor(self, spot) -> None:
+        """가운데 버튼 아래 있는 것을 지운다.
+
+        먼저 고르고 누르게 하면 손이 두 번 간다. 커서 밑에 노드나 선이 있으면
+        그것을 고른 것으로 치고, 빈 곳이면 이미 골라둔 것을 지운다.
+        """
+        viewer = self.ng.viewer()
+        node, pipe = node_view.item_at(viewer, viewer.mapToScene(spot))
+
+        if node is not None or pipe is not None:
+            self.ng.clear_selection()
+            for old in viewer.selected_pipes():
+                old.setSelected(False)
+            if node is not None:
+                node.selected = True
+            else:
+                pipe.setSelected(True)
+
+        self.delete_selected()
 
     def showEvent(self, event):
         super().showEvent(event)

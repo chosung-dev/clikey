@@ -479,7 +479,7 @@ class Inspector(QWidget):
             label = QLabel(note)
             label.setWordWrap(True)
             label.setStyleSheet(f"font-size: 12px; color: {T.INK_3};")
-            return [label]
+            return [label, self._note_field(node)]
 
         out: List[QWidget] = []
         self.tolerance = None
@@ -503,7 +503,18 @@ class Inspector(QWidget):
             if kind == "tolerance":
                 self.tolerance = widget
             out.append(field(label, widget, hint))
+
+        out.append(self._note_field(node))
         return out
+
+    def _note_field(self, node: Node) -> QWidget:
+        """노드 카드에 보일 설명. 모든 노드가 갖는다."""
+        widget = build_widget(
+            "text", node.params.get("note", ""),
+            {"placeholder": "예: 확인 버튼 누르기"},
+            lambda value: self._changed(node, "note", value),
+        )
+        return field("설명", widget, "적어두면 카드에 이 말이 대신 보입니다")
 
     def _captured_color(self, node: Node, rgb) -> None:
         """좌표와 함께 집은 색을 넣고, 견본까지 보이도록 패널을 다시 그린다."""

@@ -281,6 +281,11 @@ class ClikeyNode(BaseNode):
 
 def summarize(node) -> str:
     p = node.params
+    # 직접 적은 설명이 있으면 그것을 보여준다. 자동으로 만든 요약보다
+    # "확인 버튼 누르기" 같은 말이 그래프를 읽기 쉽게 한다.
+    note = str(p.get("note") or "").strip()
+    if note:
+        return note
     if node.type == "delay":
         return f"{p.get('seconds', 0)}초"
     if node.type == "image_match":
@@ -496,6 +501,20 @@ def _install_port_colors() -> None:
 
     PipeItem.draw_path = draw_path
     PipeItem._clikey_port_colors = True
+
+
+def item_at(viewer, scene_pos):
+    """그 자리에 있는 (노드, 연결선). 없으면 None.
+
+    노드가 선을 덮고 있으면 노드가 먼저다 — NodeGraphQt 가 고르는 차례와 같다.
+    """
+    node = pipe = None
+    for item in viewer._items_near(scene_pos, None, 5, 5):
+        if isinstance(item, AbstractNodeItem) and node is None:
+            node = item
+        elif isinstance(item, PipeItem) and pipe is None:
+            pipe = item
+    return node, pipe
 
 
 def _install_right_drag_pan() -> None:
