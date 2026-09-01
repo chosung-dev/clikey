@@ -634,13 +634,25 @@ class MacroRow(QFrame):
         holder.setLayout(left)
         lay.addWidget(holder, 1)
 
-        # 단축키
-        if macro.shortcut:
-            kbd = QLabel(hotkeys.display(macro.shortcut))
-            kbd.setObjectName("KbdMuted" if dimmed else "Kbd")
-            kbd.setFixedHeight(22)
-            kbd.setAlignment(Qt.AlignCenter)
-            cell = self._cell(kbd, T.COL_SHORTCUT)
+        # 단축키 — 실행과 종료를 함께 보여준다
+        if macro.shortcut or macro.stop_shortcut:
+            keys = QWidget()
+            klay = QHBoxLayout(keys)
+            klay.setContentsMargins(0, 0, 0, 0)
+            klay.setSpacing(4)
+            for i, key in enumerate((macro.shortcut, macro.stop_shortcut)):
+                if i:
+                    slash = QLabel("/")
+                    slash.setObjectName("CellEmpty")
+                    klay.addWidget(slash)
+                kbd = QLabel(hotkeys.display(key))
+                kbd.setObjectName(("KbdMuted" if dimmed else "Kbd") if key
+                                  else "CellEmpty")
+                kbd.setFixedHeight(22)
+                kbd.setAlignment(Qt.AlignCenter)
+                klay.addWidget(kbd)
+            klay.addStretch(1)
+            cell = self._cell(keys, T.COL_SHORTCUT)
         else:
             dash = QLabel("—")
             dash.setObjectName("CellEmpty")

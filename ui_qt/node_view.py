@@ -7,11 +7,13 @@ NodeGraphQt 기본 노드는 세로 모드에서 이름을 카드 밖에 그리�
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Dict
 
 from NodeGraphQt import BaseNode, NodeGraph
 from NodeGraphQt.constants import (
     LayoutDirectionEnum,
+    NodeEnum,
     PipeEnum,
     PipeLayoutEnum,
     ViewerEnum,
@@ -123,8 +125,31 @@ def _guides(scene) -> AlignGuides:
     return found
 
 
+@lru_cache(maxsize=64)
+def _preview_pixmap(path: str, stamp) -> QtGui.QPixmap:
+    """카드에 얹을 작은 그림. 파일이 바뀌면 stamp 가 달라져 다시 읽는다."""
+    return QtGui.QPixmap(path)
+
+
+def preview_for(node) -> QtGui.QPixmap:
+    """이미지 검색 노드가 찾는 그림. 없으면 빈 QPixmap."""
+    if node.type != "image_match":
+        return QtGui.QPixmap()
+    path = str(node.params.get("template") or "")
+    if not path:
+        return QtGui.QPixmap()
+    try:
+        info = os.stat(path)
+        stamp = (info.st_mtime_ns, info.st_size)
+    except OSError:
+        return QtGui.QPixmap()
+    return _preview_pixmap(path, stamp)
+
+
 class ClikeyNodeItem(NodeItem):
     RADIUS = 10.0
+    PREVIEW_H = 64          # 미리보기가 차지하는 높이
+    PREVIEW_GAP = 8
 
     def __init__(self, name="node", parent=None):
         super().__init__(name, parent)
@@ -133,6 +158,7 @@ class ClikeyNodeItem(NodeItem):
         self.accent = SKIN["wait"]["accent"]
         self.running = False                 # 실행 중 이 노드를 지나는 중
         self.dimmed = False                  # 고를 수 없는 노드 (좌표 고르는 중)
+        self._preview = QtGui.QPixmap()      # 이미지 검색 노드의 그림
         self.text_item.setVisible(False)     # 내장 라벨은 카드 밖에 그려진다
         # 위치가 바뀔 때 알림을 받아야 끌면서 맞출 수 있다
         self.setFlag(QtWidgets.QGraphicsItem.ItemSendsGeometryChanges, True)
@@ -197,6 +223,28 @@ class ClikeyNodeItem(NodeItem):
             _guides(self.scene()).hide()
         super().mouseReleaseEvent(event)
 
+    # ------------------------------------------------------------ 미리보기
+
+    def set_preview(self, pixmap) -> None:
+        """카드 위쪽에 얹을 그림. 폭은 그대로 두고 높이만 늘어난다."""
+        before = self._preview.isNull()
+        self._preview = pixmap if pixmap is not None else QtGui.QPixmap()
+        if before != self._preview.isNull() and self.scene() is not None:
+            self.draw_node()          # 높이가 달라졌으니 포트도 다시 앉힌다
+        self.update()
+
+    def _preview_block(self) -> float:
+        return 0.0 if self._preview.isNull() else self.PREVIEW_H + self.PREVIEW_GAP
+
+    def calc_size(self, add_w=0.0, add_h=0.0):
+        width, height = super().calc_size(add_w, add_h)
+        block = self._preview_block()
+        if block:
+            # 기본 높이(글자 아래 여백을 품은 값) 위에 얹어야 포트가 글자에
+            # 닿지 않는다. 내용만큼만 늘리면 그 여백이 사라진다.
+            height = max(height, NodeEnum.HEIGHT.value) + block
+        return width, height
+
     def setToolTip(self, text):
         """마우스를 올렸을 때 나오는 안내를 없앤다.
 
@@ -250,6 +298,19 @@ class ClikeyNodeItem(NodeItem):
 
         left = rect.left() + 16
         width = rect.width() - 24
+        top = rect.top() + self._preview_block()
+
+        if not self._preview.isNull():
+            box = QtCore.QRectF(left, rect.top() + self.PREVIEW_GAP,
+                                width, self.PREVIEW_H)
+            shot = self._preview
+            if shot.width() > box.width() or shot.height() > box.height():
+                shot = shot.scaled(int(box.width()), int(box.height()),
+                                   QtCore.Qt.KeepAspectRatio,
+                                   QtCore.Qt.SmoothTransformation)
+            painter.drawPixmap(
+                QtCore.QPointF(box.center().x() - shot.width() / 2,
+                               box.center().y() - shot.height() / 2), shot)
 
         font = painter.font()
         font.setPointSizeF(9.5)
@@ -257,7 +318,7 @@ class ClikeyNodeItem(NodeItem):
         painter.setFont(font)
         painter.setPen(QtGui.QColor(*INK_RGB))
         painter.drawText(
-            QtCore.QRectF(left, rect.top() + 9, width, 18),
+            QtCore.QRectF(left, top + 9, width, 18),
             QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
             self.title,
         )
@@ -268,7 +329,7 @@ class ClikeyNodeItem(NodeItem):
             painter.setFont(font)
             painter.setPen(QtGui.QColor(*INK2_RGB))
             painter.drawText(
-                QtCore.QRectF(left, rect.top() + 28, width, 16),
+                QtCore.QRectF(left, top + 28, width, 16),
                 QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
                 self.detail,
             )
@@ -679,6 +740,7 @@ def populate(model: Graph, ng: NodeGraph) -> Dict[str, object]:
         )
         ui.view.title = node.name or LABEL.get(node.type, node.type)
         ui.view.detail = summarize(node)
+        ui.view.set_preview(preview_for(node))
 
         if node.type != "start":
             ui.add_input("in", multi_input=True, display_name=False)
@@ -750,10 +812,10 @@ def add_node(model_node, ng: NodeGraph, pos) -> object:
 
 
 def refresh_card(ui, model_node) -> None:
-    """파라미터가 바뀌었을 때 카드의 요약 문구를 갱신."""
+    """파라미터가 바뀌었을 때 카드의 문구와 미리보기를 갱신."""
     ui.view.title = model_node.name or LABEL.get(model_node.type, model_node.type)
     ui.view.detail = summarize(model_node)
-    ui.view.update()
+    ui.view.set_preview(preview_for(model_node))
 
 
 def read_layout(made: Dict[str, object]) -> Dict[str, list]:

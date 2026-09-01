@@ -61,7 +61,7 @@ BP_HIDE_SHORTCUT = 700
 ROW_H = 62
 
 # 표 컬럼 폭 (이름은 남는 공간을 차지)
-COL_SHORTCUT = 100
+COL_SHORTCUT = 148     # 실행 / 종료 두 개가 들어간다
 COL_NODES = 96
 COL_LASTRUN = 132
 COL_STATUS = 148
