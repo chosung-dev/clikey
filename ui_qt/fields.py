@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QDoubleValidator, QIntValidator, QKeySequence
+from PySide6.QtGui import (
+    QDoubleValidator,
+    QGuiApplication,
+    QIntValidator,
+    QKeySequence,
+    QPixmap,
+)
 
 from PySide6.QtWidgets import (
     QColorDialog,
@@ -83,6 +89,35 @@ class NumberField(QLineEdit):
         self.setText(self._format(value))
         self._last = self.text()
         on_change(value)
+
+
+class PercentField(QWidget):
+    """0~1 로 담기는 값을 백분율로 보여준다. 0.9 보다 90% 가 읽기 쉽다."""
+
+    def __init__(self, value, on_change: Setter,
+                 minimum: int = 0, maximum: int = 100):
+        super().__init__()
+        self.on_change = on_change
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        try:
+            percent = round(float(value) * 100)
+        except (TypeError, ValueError):
+            percent = maximum
+
+        self.edit = NumberField(percent, self._commit,
+                                minimum=minimum, maximum=maximum)
+        lay.addWidget(self.edit, 1)
+
+        tag = QLabel("%")
+        tag.setStyleSheet(f"font-size: 12px; color: {T.INK_4};")
+        lay.addWidget(tag)
+
+    def _commit(self, percent) -> None:
+        self.on_change(round(int(percent) / 100, 2))
 
 
 class ChoiceField(QFrame):
@@ -541,31 +576,193 @@ class ColorField(QWidget):
             self.on_change(list(self.color))
 
 
-class FileField(QWidget):
+class ImageField(QWidget):
+    """템플릿 이미지. 미리보기 · 파일 이름 · 없는 파일 경고를 함께 보여준다.
+
+    경로 글자만 있으면 어떤 그림인지 알 수 없고, 파일을 옮기거나 지워도
+    실행할 때가 되어서야 조용히 "못 찾음" 이 된다. 여기서 미리 알린다.
+    """
+
+    THUMB = 56
+
     def __init__(self, path: str, on_change: Setter):
         super().__init__()
         self.on_change = on_change
+        self.path = str(path or "")
 
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
 
-        self.edit = TextField(path, on_change, "이미지 파일 경로")
-        lay.addWidget(self.edit, 1)
+        card = QFrame()
+        card.setObjectName("ValueBox")
+        cl = QHBoxLayout(card)
+        cl.setContentsMargins(8, 8, 8, 8)
+        cl.setSpacing(10)
 
-        browse = QPushButton("찾기")
-        browse.setObjectName("GhostBtn")
-        browse.setFixedHeight(32)
-        browse.setCursor(Qt.PointingHandCursor)
-        browse.clicked.connect(self._browse)
-        lay.addWidget(browse)
+        self.thumb = QLabel()
+        self.thumb.setFixedSize(self.THUMB, self.THUMB)
+        self.thumb.setAlignment(Qt.AlignCenter)
+        cl.addWidget(self.thumb)
+
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        self.name = QLabel()
+        self.name.setStyleSheet("font-size: 12px; font-weight: 500;")
+        self.detail = QLabel()
+        self.detail.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
+        text.addWidget(self.name)
+        text.addWidget(self.detail)
+        text.addStretch(1)
+        cl.addLayout(text, 1)
+        root.addWidget(card)
+        self.card = card
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        for label, slot in (("파일 고르기", self._browse),
+                            ("붙여넣기", self._paste)):
+            btn = QPushButton(label)
+            btn.setObjectName("GhostBtn")
+            btn.setFixedHeight(30)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(slot)
+            row.addWidget(btn, 1)
+        root.addLayout(row)
+
+        self._refresh()
+
+    # ------------------------------------------------------------ 화면
+
+    def _refresh(self) -> None:
+        from pathlib import Path
+
+        if not self.path:
+            self.thumb.setPixmap(QPixmap())
+            self.thumb.setText("없음")
+            self.thumb.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
+            self.name.setText("이미지를 고르세요")
+            self._detail("파일을 고르거나 클립보드에서 붙여넣습니다")
+            self.card.setToolTip("")
+            return
+
+        file = Path(self.path)
+        self.name.setText(file.name)
+        self.card.setToolTip(self.path)      # 전체 경로는 여기서 본다
+
+        shot = QPixmap(self.path)
+        if shot.isNull():
+            self.thumb.setPixmap(QPixmap())
+            self.thumb.setText("?")
+            self.thumb.setStyleSheet(f"font-size: 15px; color: {T.DANGER};")
+            self._detail("파일을 찾을 수 없습니다" if not file.exists()
+                         else "이미지로 읽을 수 없는 파일입니다", bad=True)
+            return
+
+        self.thumb.setStyleSheet("")
+        self.thumb.setPixmap(shot.scaled(
+            self.THUMB, self.THUMB, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._detail(f"{shot.width()} × {shot.height()}")
+
+    def _detail(self, text: str, bad: bool = False) -> None:
+        self.detail.setText(text)
+        self.detail.setStyleSheet(
+            f"font-size: 11px; color: {T.DANGER if bad else T.INK_4};")
+
+    def _set(self, path: str) -> None:
+        self.path = path
+        self._refresh()
+        self.on_change(path)
+
+    # ------------------------------------------------------------ 고르기
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "템플릿 이미지 고르기", "", "이미지 (*.png *.jpg *.jpeg *.bmp)")
+            self, "템플릿 이미지 고르기", "",
+            "이미지 (*.png *.jpg *.jpeg *.bmp)")
         if path:
-            self.edit.setText(path)
-            self.on_change(path)
+            self._set(path)
+
+    def _paste(self) -> None:
+        """클립보드 이미지를 라이브러리에 저장하고 그것을 가리킨다."""
+        from core import library
+
+        shot = QGuiApplication.clipboard().image()
+        if shot.isNull():
+            self._detail("클립보드에 이미지가 없습니다", bad=True)
+            return
+        try:
+            saved = library.save_image(QPixmap.fromImage(shot))
+        except OSError as exc:
+            self._detail(str(exc), bad=True)
+            return
+        self._set(str(saved))
+
+
+class RegionField(QWidget):
+    """화면에서 찾아볼 범위. 정하지 않으면 화면 전체를 뒤진다.
+
+    범위를 좁히면 그만큼 빨라진다 — 반복 안에서 이미지를 찾을 때 차이가 크다.
+    """
+
+    def __init__(self, region, on_change: Setter):
+        super().__init__()
+        self.on_change = on_change
+        self.region = list(region) if isinstance(region, (list, tuple))             and len(region) == 4 else None
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+
+        self.box = QFrame()
+        self.box.setObjectName("ValueBox")
+        self.box.setFixedHeight(32)
+        bl = QHBoxLayout(self.box)
+        bl.setContentsMargins(9, 0, 9, 0)
+        self.label = QLabel()
+        bl.addWidget(self.label)
+        bl.addStretch(1)
+        root.addWidget(self.box)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self.pick_btn = QPushButton("영역 지정")
+        self.clear_btn = QPushButton("화면 전체로")
+        for btn, slot in ((self.pick_btn, self._pick), (self.clear_btn, self._clear)):
+            btn.setObjectName("GhostBtn")
+            btn.setFixedHeight(30)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(slot)
+            row.addWidget(btn, 1)
+        root.addLayout(row)
+
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if self.region is None:
+            self.label.setText("화면 전체")
+            self.label.setStyleSheet(f"font-size: 12px; color: {T.INK_4};")
+        else:
+            x1, y1, x2, y2 = self.region
+            self.label.setText(f"{x1}, {y1}  ·  {x2 - x1} × {y2 - y1}")
+            self.label.setStyleSheet(
+                f"font-family: '{T.mono_stack()}'; font-size: 12px;")
+        self.clear_btn.setEnabled(self.region is not None)
+
+    def _pick(self) -> None:
+        from ui_qt.picker import pick_region
+
+        picked = pick_region(self.window())
+        if picked is None:
+            return
+        self.region = list(picked)
+        self._refresh()
+        self.on_change(list(self.region))
+
+    def _clear(self) -> None:
+        self.region = None
+        self._refresh()
+        self.on_change(None)
 
 
 # ---------------------------------------------------------------- 노드별 필드
@@ -620,9 +817,12 @@ FIELDS: Dict[str, List[Spec]] = {
          "0 이면 색이 정확히 같아야 합니다"),
     ],
     "image_match": [
-        ("template", "템플릿 이미지", "file", {}, ""),
-        ("threshold", "일치율", "number",
-         {"decimals": 2, "minimum": 0.1, "maximum": 1.0}, "1 에 가까울수록 엄격합니다"),
+        ("template", "템플릿 이미지", "image", {}, ""),
+        ("region", "찾아볼 범위", "region", {},
+         "좁힐수록 빨라집니다. 반복 안에서 찾을 때 차이가 큽니다."),
+        ("threshold", "일치율", "percent",
+         {"minimum": 10, "maximum": 100},
+         "낮추면 조금 달라도 찾고, 높이면 거의 같아야 찾습니다"),
     ],
 }
 
@@ -639,7 +839,7 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     "delay": {"seconds": 0.5},
     "loop": {"max": 10},
     "rgb_match": {"pos": {"x": 0, "y": 0}, "color": [255, 255, 255], "tolerance": 0},
-    "image_match": {"template": "", "threshold": 0.9},
+    "image_match": {"template": "", "region": None, "threshold": 0.9},
 }
 
 
@@ -660,8 +860,16 @@ def build_widget(kind: str, value, options: Dict[str, Any], on_change: Setter) -
         return PointField(value, on_change, options.get("sources"))
     if kind == "color":
         return ColorField(value, on_change)
-    if kind == "file":
-        return FileField(str(value or ""), on_change)
+    if kind == "image":
+        return ImageField(str(value or ""), on_change)
+    if kind == "region":
+        return RegionField(value, on_change)
+    if kind == "percent":
+        return PercentField(
+            value, on_change,
+            minimum=options.get("minimum", 0),
+            maximum=options.get("maximum", 100),
+        )
     if kind == "hotkey":
         return HotkeyField(value, on_change)
     if kind == "key":

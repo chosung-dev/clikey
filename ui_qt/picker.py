@@ -214,3 +214,115 @@ def pick_from_screen(parent=None) -> Optional[PickResult]:
     if picker.exec() == QDialog.Accepted:
         return picker.result
     return None
+
+
+# ---------------------------------------------------------------- 영역 고르기
+
+
+class RegionPicker(ScreenPicker):
+    """끌어서 네모난 영역을 고른다. 정지된 화면 위에서 고르는 것은 같다."""
+
+    MIN_SIDE = 4             # 이보다 작으면 잘못 누른 것으로 본다
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.drag_from: Optional[QPoint] = None
+        self.region: Optional[Tuple[int, int, int, int]] = None
+
+    def _selection(self) -> Optional[QRect]:
+        if self.drag_from is None:
+            return None
+        return QRect(self.drag_from, self.cursor_at).normalized()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.drawPixmap(0, 0, self.shot)
+
+        box = self._selection()
+        # 고른 밖은 어둡게 덮어 범위를 또렷하게
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(27, 30, 35, 110))
+        if box is None:
+            painter.drawRect(self.rect())
+        else:
+            for part in (QRect(0, 0, self.width(), box.top()),
+                         QRect(0, box.bottom() + 1, self.width(),
+                               self.height() - box.bottom() - 1),
+                         QRect(0, box.top(), box.left(), box.height()),
+                         QRect(box.right() + 1, box.top(),
+                               self.width() - box.right() - 1, box.height())):
+                painter.drawRect(part)
+
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(58, 91, 199), 1))
+            painter.drawRect(box)
+            self._draw_size(painter, box)
+
+        if box is None:
+            self._draw_crosshair(painter, self.cursor_at)
+        self._draw_hint(painter)
+
+    def _draw_size(self, painter: QPainter, box: QRect) -> None:
+        text = f"{box.width()} × {box.height()}"
+        font = QFont(painter.font())
+        font.setPointSizeF(10)
+        painter.setFont(font)
+
+        width = painter.fontMetrics().horizontalAdvance(text) + 18
+        # 위쪽에 자리가 없으면 네모 안쪽에 붙인다
+        top = box.top() - 30 if box.top() > 34 else box.top() + 6
+        tag = QRect(box.left(), top, width, 24)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(27, 30, 35, 220))
+        painter.drawRoundedRect(tag, 6, 6)
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(tag, Qt.AlignCenter, text)
+
+    def _draw_hint(self, painter: QPainter) -> None:
+        text = ("끌어서 영역을 고르세요  ·  Esc 취소"
+                if self.drag_from is None
+                else "손을 떼면 정해집니다  ·  Esc 취소")
+        font = QFont(painter.font())
+        font.setPointSizeF(10)
+        painter.setFont(font)
+
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(text) + 28
+        box = QRect((self.width() - width) // 2, 28, width, 38)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(27, 30, 35, 220))
+        painter.drawRoundedRect(box, 19, 19)
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(box, Qt.AlignCenter, text)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        self.drag_from = event.position().toPoint()
+        self.cursor_at = self.drag_from
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        box = self._selection()
+        if box is None:
+            return
+        self.drag_from = None
+        if box.width() < self.MIN_SIDE or box.height() < self.MIN_SIDE:
+            self.update()               # 잘못 누른 것 — 다시 고르게 둔다
+            return
+
+        # 화면 캡처 쪽이 두 모서리를 받으므로 그 꼴로 돌려준다
+        top_left = box.topLeft() + self.origin
+        self.region = (top_left.x(), top_left.y(),
+                       top_left.x() + box.width(), top_left.y() + box.height())
+        self.accept()
+
+
+def pick_region(parent=None) -> Optional[Tuple[int, int, int, int]]:
+    """화면을 덮어 영역을 고르게 한다. (x1, y1, x2, y2) 또는 None."""
+    picker = RegionPicker(parent)
+    if picker.exec() == QDialog.Accepted:
+        return picker.region
+    return None

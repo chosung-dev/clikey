@@ -20,6 +20,10 @@ MACRO_SUFFIX = ".clikey"
 ROOT_FOLDER_NAME = "Clikey"
 UNFILED = "분류 없음"
 
+#: 클립보드에서 붙여넣은 템플릿 이미지를 담아두는 곳.
+#: 점으로 시작해 매크로 폴더 목록에는 나타나지 않는다.
+IMAGES_DIR = ".images"
+
 
 # ---------------------------------------------------------------- 위치
 
@@ -185,7 +189,8 @@ def scan(root: Optional[Path] = None) -> List[MacroFile]:
     collect(root, UNFILED)
 
     try:
-        subdirs = sorted((p for p in root.iterdir() if p.is_dir()),
+        subdirs = sorted((p for p in root.iterdir()
+                          if p.is_dir() and not p.name.startswith(".")),
                          key=lambda p: p.name.lower())
     except OSError:
         subdirs = []
@@ -200,9 +205,35 @@ def folder_names(root: Optional[Path] = None) -> List[str]:
     """하위 폴더 이름. 목록에 항목이 없어도 폴더는 보여준다."""
     root = root or library_root()
     try:
-        return sorted((p.name for p in root.iterdir() if p.is_dir()), key=str.lower)
+        return sorted((p.name for p in root.iterdir()
+                       if p.is_dir() and not p.name.startswith(".")), key=str.lower)
     except OSError:
         return []
+
+
+def images_root(root: Optional[Path] = None) -> Path:
+    """붙여넣은 템플릿 이미지를 담아둘 폴더. 없으면 만든다."""
+    path = (root or library_root()) / IMAGES_DIR
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def save_image(pixmap, stem: str = "붙여넣은 이미지",
+               root: Optional[Path] = None) -> Path:
+    """이미지를 라이브러리 안에 저장하고 그 경로를 돌려준다.
+
+    클립보드 이미지는 파일이 아니라서 어딘가에 놓아두어야 참조할 수 있다.
+    같은 이름이 있으면 뒤에 번호를 붙인다.
+    """
+    folder = images_root(root)
+    path = folder / f"{stem}.png"
+    n = 2
+    while path.exists():
+        path = folder / f"{stem} {n}.png"
+        n += 1
+    if not pixmap.save(str(path), "PNG"):
+        raise OSError("이미지를 저장하지 못했습니다.")
+    return path
 
 
 # ---------------------------------------------------------------- 폴더 관리
