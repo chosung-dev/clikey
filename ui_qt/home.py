@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from PySide6.QtCore import QEvent, QTimer, Qt, QSize, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QEvent, QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -45,6 +45,7 @@ FIRST_CHUNK = 24
 NEXT_CHUNK = 24
 SCROLL_MARGIN = 240              # 바닥에서 이만큼 남으면 다음 묶음을 만든다
 HISTORY_LIMIT = 50               # 뒤로가기로 되짚을 수 있는 폴더 수
+WINDOW_KEY = "home_window"       # 앱 상태에 창 크기를 담아두는 이름
 
 
 def clear_layout(layout) -> None:
@@ -756,6 +757,7 @@ class HomeWindow(FramelessWindow):
         self.setWindowTitle("Clikey")
         self.setWindowIcon(QIcon(T.APP_ICON))
         self.resize(1440, 900)
+        self._start_maximized = self._restore_geometry()
 
         self.macros: List[Macro] = load_macros()
         self.folder_key = ALL_FOLDERS
@@ -1568,7 +1570,42 @@ class HomeWindow(FramelessWindow):
         # 기본 단축키가 바뀌어도 이미 만든 매크로에는 영향이 없다
         open_settings(self)
 
+    # ------------------------------------------------------------ 창 크기 기억
+
+    def _restore_geometry(self) -> bool:
+        """지난번 크기·자리로 되돌린다. 최대화였으면 True."""
+        saved = load_app_state().get(WINDOW_KEY) or {}
+        try:
+            box = QRect(int(saved["x"]), int(saved["y"]),
+                        max(int(saved["w"]), self.minimumWidth()),
+                        max(int(saved["h"]), self.minimumHeight()))
+        except (KeyError, TypeError, ValueError):
+            return False
+
+        # 모니터 구성이 바뀌어 창이 보이지 않을 자리면 그냥 기본값으로 둔다
+        if not any(screen.availableGeometry().intersects(box)
+                   for screen in QGuiApplication.screens()):
+            return False
+
+        self.setGeometry(box)
+        return bool(saved.get("maximized"))
+
+    def _save_geometry(self) -> None:
+        # 최대화 상태에서는 그 전 크기를 담아둔다 — 다음에 창을 되돌릴 때 쓴다
+        box = self.normalGeometry() if self.isMaximized() else self.geometry()
+        save_app_state({WINDOW_KEY: {
+            "x": box.x(), "y": box.y(), "w": box.width(), "h": box.height(),
+            "maximized": self.isMaximized(),
+        }})
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._start_maximized:
+            self._start_maximized = False
+            self.showMaximized()
+
     def closeEvent(self, event):
+        self._save_geometry()
         self.binder.clear()
         for runner in self.runners.values():
             runner.stop()
