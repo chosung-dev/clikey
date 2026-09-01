@@ -486,7 +486,7 @@ class Inspector(QWidget):
         nid.setStyleSheet(f"font-family: '{T.mono_stack()}'; font-size: 11px; color: {T.INK_4};")
         self.head_lay.addWidget(nid)
 
-        for widget in self._fields_for(node):
+        for widget in self._fields_for(node, graph):
             self.body_lay.addWidget(widget)
 
         branches = self._branches(node, graph)
@@ -497,7 +497,14 @@ class Inspector(QWidget):
 
     # ------------------------------------------------------------
 
-    def _fields_for(self, node: Node) -> List[QWidget]:
+    def _locator_sources(self, node: Node, graph: Optional[Graph]):
+        """좌표를 남기는 다른 노드들 — 좌표 칸에서 골라 따라갈 수 있다."""
+        if graph is None:
+            return []
+        return [(nid, f"{LABEL.get(graph.nodes[nid].type, nid)} ({nid})")
+                for nid in graph.locators(exclude=node.id)]
+
+    def _fields_for(self, node: Node, graph: Optional[Graph] = None) -> List[QWidget]:
         specs = FIELDS.get(node.type, [])
         if not specs:
             note = {"start": "여기서 실행이 시작됩니다.",
@@ -509,6 +516,9 @@ class Inspector(QWidget):
 
         out: List[QWidget] = []
         for key, label, kind, options, hint in specs:
+            if kind == "point":
+                options = dict(options,
+                               sources=self._locator_sources(node, graph))
             widget = build_widget(
                 kind,
                 node.params.get(key, DEFAULTS.get(node.type, {}).get(key)),

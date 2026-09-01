@@ -7,7 +7,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QKeySequence
 
-from core import hotkeys
 from PySide6.QtWidgets import (
     QColorDialog,
     QFileDialog,
@@ -15,11 +14,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from core import hotkeys
 from ui_qt import theme as T
 
 Setter = Callable[[Any], None]
@@ -118,12 +119,19 @@ class ChoiceField(QFrame):
 
 
 class PointField(QWidget):
-    """좌표. 앞선 조건이 찾은 좌표를 참조 중이면 그 사실을 보여준다."""
+    """좌표. 직접 적거나, 앞선 조건 노드가 찾아낸 자리를 가리킬 수 있다.
 
-    def __init__(self, pos, on_change: Setter):
+    "이미지를 찾아서 그 자리를 클릭" 은 매크로에서 가장 흔한 짜임인데,
+    찾은 자리는 실행해봐야 알 수 있어 숫자로 적어둘 수가 없다. 그래서 값
+    대신 "그 노드가 찾은 곳" 이라고 적어둔다.
+    """
+
+    def __init__(self, pos, on_change: Setter, sources=None):
         super().__init__()
         self.pos = dict(pos) if isinstance(pos, dict) else {"x": 0, "y": 0}
         self.on_change = on_change
+        #: [(노드 id, 보여줄 이름)] — 좌표를 남기는 앞선 노드들
+        self.sources = list(sources or [])
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -139,7 +147,8 @@ class PointField(QWidget):
             chip.setFixedHeight(32)
             cl = QHBoxLayout(chip)
             cl.setContentsMargins(9, 0, 9, 0)
-            label = QLabel(f"{ref} 이(가) 찾은 좌표")
+            label = QLabel(f"{self._name_of(ref)} 이(가) 찾은 좌표")
+            label.setWordWrap(True)
             label.setStyleSheet(f"font-size: 12px; color: {T.ACCENT};")
             cl.addWidget(label)
             cl.addStretch(1)
@@ -183,6 +192,20 @@ class PointField(QWidget):
         capture.clicked.connect(self._capture)
         lay.addWidget(capture)
 
+        if self.sources:
+            follow = QPushButton("찾은 좌표 따라가기")
+            follow.setObjectName("GhostBtn")
+            follow.setFixedHeight(30)
+            follow.setCursor(Qt.PointingHandCursor)
+            follow.clicked.connect(lambda: self._pick_source(follow))
+            lay.addWidget(follow)
+
+    def _name_of(self, node_id: str) -> str:
+        for nid, name in self.sources:
+            if nid == node_id:
+                return name
+        return node_id or "?"
+
     def _set(self, axis: str, value) -> None:
         self.pos[axis] = int(value)
         self.on_change(dict(self.pos))
@@ -199,6 +222,15 @@ class PointField(QWidget):
             edit.setText(edit._format(self.pos[axis]))
             edit._last = edit.text()
         self.on_change(dict(self.pos))
+
+    def _pick_source(self, anchor: QWidget) -> None:
+        menu = QMenu(self)
+        for nid, name in self.sources:
+            menu.addAction(name, lambda i=nid: self._to_ref(i))
+        menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+
+    def _to_ref(self, node_id: str) -> None:
+        self.on_change({"x": {"ref": node_id}, "y": {"ref": node_id}})
 
     def _to_literal(self) -> None:
         self.on_change({"x": 0, "y": 0})
@@ -625,7 +657,7 @@ def build_widget(kind: str, value, options: Dict[str, Any], on_change: Setter) -
     if kind == "choice":
         return ChoiceField(options["options"], value, on_change)
     if kind == "point":
-        return PointField(value, on_change)
+        return PointField(value, on_change, options.get("sources"))
     if kind == "color":
         return ColorField(value, on_change)
     if kind == "file":

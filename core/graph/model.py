@@ -289,6 +289,11 @@ class Graph:
 
     # ------------------------------------------------------------ 직렬화
 
+    def locators(self, exclude: Optional[str] = None) -> List[str]:
+        """좌표를 남기는 노드들의 id. 다른 노드가 그 좌표를 참조할 수 있다."""
+        return [nid for nid, node in self.nodes.items()
+                if node.type in LOCATING_TYPES and nid != exclude]
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "version": SCHEMA_VERSION,
