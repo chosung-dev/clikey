@@ -247,8 +247,8 @@ class PointField(QWidget):
             row.addWidget(wrap, 1)
         lay.addLayout(row)
 
-        capture = QPushButton("화면에서 좌표 집기"
-                              + (" · 색상" if self.also_color else ""))
+        capture = QPushButton("화면에서 좌표·색상 집기" if self.also_color
+                              else "화면에서 좌표 집기")
         capture.setObjectName("GhostBtn")
         capture.setFixedHeight(30)
         capture.setCursor(Qt.PointingHandCursor)
