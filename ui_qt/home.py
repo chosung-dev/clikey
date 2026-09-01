@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import hotkeys, library, prefs, runlog
+from core.persistence import load_app_state, save_app_state
 from core.graph import Graph
 from ui_qt import dialogs, theme as T
 from ui_qt.frameless import FramelessWindow
@@ -753,8 +754,10 @@ class HomeWindow(FramelessWindow):
         self._stretch_added = False
         #: 지금 보이고 있는 표의 열 (창 폭에 따라 바뀐다)
         self._columns = visible_columns(1440)
-        #: 좁은 창에서 폴더 목록을 버튼으로 펼쳐 둔 상태인가
-        self._sidebar_open = False
+        #: 넓은 창에서 사용자가 직접 접어둔 상태인가 (다음에 켤 때도 이어진다)
+        self._sidebar_collapsed = bool(load_app_state().get("sidebar_collapsed"))
+        #: 좁은 창에서 버튼으로 잠깐 펼쳐둔 상태인가 (폴더를 고르면 도로 접힌다)
+        self._drawer_open = False
         #: 좁을 때는 목록을 밀어내지 않고 그 위에 겹쳐 띄운다
         self._sidebar_floating = False
         # 창이 아주 작아지면 알아볼 수 없으므로 바닥을 정해둔다
@@ -1014,11 +1017,10 @@ class HomeWindow(FramelessWindow):
         self.sidebar.setFixedWidth(
             T.SIDEBAR_W_NARROW if width < T.BP_NARROW_SIDEBAR else T.SIDEBAR_W)
 
-        # 아주 좁으면 폴더 목록을 접는다. 버튼으로 다시 펼 수 있다.
+        # 아주 좁으면 자리를 아끼려 저절로 접는다. 버튼으로 잠깐 펼 수 있다.
         cramped = width < T.BP_HIDE_SIDEBAR
-        self.folder_btn.setVisible(cramped)
         if not cramped:
-            self._sidebar_open = False
+            self._drawer_open = False
         self._set_sidebar_floating(cramped)
 
         columns = visible_columns(width)
@@ -1049,24 +1051,29 @@ class HomeWindow(FramelessWindow):
                 self.sidebar.setParent(None)
                 self._root_layout.insertWidget(0, self.sidebar)
 
-        if not floating:
-            self.sidebar.show()
-            return
-
-        self.sidebar.setVisible(self._sidebar_open)
-        if self._sidebar_open:
+        shown = self._drawer_open if floating else not self._sidebar_collapsed
+        self.sidebar.setVisible(shown)
+        if floating and shown:
             self.sidebar.setGeometry(0, 0, self.sidebar.width(), self.height())
             self.sidebar.raise_()
 
+        self.folder_btn.setToolTip(
+            "폴더 목록 접기" if shown else "폴더 목록 펼치기")
+
     def _toggle_sidebar(self) -> None:
-        self._sidebar_open = not self._sidebar_open
+        """좁을 때는 잠깐 펼치는 서랍, 넓을 때는 계속 접어두는 설정."""
+        if self._sidebar_floating:
+            self._drawer_open = not self._drawer_open
+        else:
+            self._sidebar_collapsed = not self._sidebar_collapsed
+            save_app_state({"sidebar_collapsed": self._sidebar_collapsed})
         self._set_sidebar_floating(self._sidebar_floating)
 
     def _collapse_sidebar_if_cramped(self) -> None:
         """좁은 창에서 폴더를 고르면 목록을 다시 보여준다."""
-        if self._sidebar_open and self._sidebar_floating:
-            self._sidebar_open = False
-            self.sidebar.hide()
+        if self._drawer_open and self._sidebar_floating:
+            self._drawer_open = False
+            self._set_sidebar_floating(True)      # 툴팁까지 함께 되돌린다
 
     def _on_scrolled(self, value: int) -> None:
         if not self._pending_rows:
@@ -1574,9 +1581,7 @@ class HomeWindow(FramelessWindow):
         self.folder_btn.setIcon(T.icon_pixmap("menu", 16, T.INK_2, 1.6, self.ratio))
         self.folder_btn.setIconSize(QSize(16, 16))
         self.folder_btn.setCursor(Qt.PointingHandCursor)
-        self.folder_btn.setToolTip("폴더 목록")
         self.folder_btn.clicked.connect(self._toggle_sidebar)
-        self.folder_btn.hide()
         lay.addWidget(self.folder_btn, 0, Qt.AlignVCenter)
 
         left = QVBoxLayout()
