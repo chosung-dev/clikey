@@ -1488,12 +1488,15 @@ class HomeWindow(FramelessWindow):
         self._back_stack.append(self.folder_key)
         self._on_folder(self._forward_stack.pop(), record=False)
 
-    def _clear_search(self) -> None:
+    def _clear_search(self, rebuild: bool = True) -> None:
         self._search_timer.stop()
         self._pending_query = ""
+        self.search_box.edit.blockSignals(True)
         self.search_box.edit.clear()
-        if self.query:
-            self.query = ""
+        self.search_box.edit.blockSignals(False)
+        had = bool(self.query)
+        self.query = ""
+        if had and rebuild:
             self._rebuild()
 
     def _on_folder(self, key: str, record: bool = True) -> None:
@@ -1501,6 +1504,9 @@ class HomeWindow(FramelessWindow):
             self._back_stack.append(self.folder_key)
             del self._back_stack[:-HISTORY_LIMIT]
             self._forward_stack.clear()
+        # 폴더를 옮기면 검색은 끝난 것으로 본다. 남겨두면 '전체' 를 눌러도
+        # 폴더 목록 대신 이전 검색 결과가 그대로 보인다.
+        self._clear_search(rebuild=False)
         self.folder_key = key
         # 폴더 행에서도 들어오므로 사이드바 선택을 맞춰준다
         for name, item in self.sidebar.nav_items.items():
