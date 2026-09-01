@@ -806,21 +806,7 @@ def populate(model: Graph, ng: NodeGraph) -> Dict[str, object]:
             pos=model.layout.get(node_id, [0, 0]),
             push_undo=False,
         )
-        ui.view.title = node.name or LABEL.get(node.type, node.type)
-        ui.view.detail = summarize(node)
-        ui.view.set_preview(preview_for(node))
-
-        if node.type != "start":
-            ui.add_input("in", multi_input=True, display_name=False)
-        for port in node.ports:
-            # 출력 하나에서 갈 수 있는 다음 노드는 하나뿐이다. 다중 연결을 허용하면
-            # 화면에는 선이 둘 그려지는데 실행은 하나만 따라가 조용히 어긋난다.
-            ui.add_output(port, display_name=False, multi_output=False)
-
-        skin = SKIN[CATEGORY.get(node.type, "wait")]
-        ui.view.border_color = (*skin["border"], 255)
-        ui.view.accent = skin["accent"]
-
+        dress_node(ui, node)
         made[node_id] = ui
 
     for edge in model.edges:
@@ -857,6 +843,26 @@ def read_edges(made: Dict[str, object]) -> list:
     return edges
 
 
+def dress_node(ui, model_node) -> None:
+    """카드 모습과 포트를 갖춘다.
+
+    새로 놓을 때와 파일에서 불러올 때가 똑같아야 한다. 두 곳에 나눠 적었더니
+    한쪽에만 multi_output=False 가 들어가, 팔레트로 놓은 노드만 출력 하나에서
+    선이 둘 나가는 일이 있었다.
+    """
+    refresh_card(ui, model_node)
+
+    ui.add_input("in", multi_input=True, display_name=False)
+    for port in model_node.ports:
+        # 출력 하나에서 갈 수 있는 다음 노드는 하나뿐이다. 여럿을 허용하면
+        # 화면에는 선이 둘 그려지는데 실행은 하나만 따라가 조용히 어긋난다.
+        ui.add_output(port, display_name=False, multi_output=False)
+
+    skin = SKIN[CATEGORY.get(model_node.type, "wait")]
+    ui.view.border_color = (*skin["border"], 255)
+    ui.view.accent = skin["accent"]
+
+
 def add_node(model_node, ng: NodeGraph, pos) -> object:
     """모델 노드 하나를 캔버스에 올린다."""
     ui = ng.create_node(
@@ -865,17 +871,7 @@ def add_node(model_node, ng: NodeGraph, pos) -> object:
         pos=[round(pos[0]), round(pos[1])],
         push_undo=False,
     )
-    ui.view.title = model_node.name or LABEL.get(model_node.type, model_node.type)
-    ui.view.detail = summarize(model_node)
-
-    if model_node.type != "start":
-        ui.add_input("in", multi_input=True, display_name=False)
-    for port in model_node.ports:
-        ui.add_output(port, display_name=False)
-
-    skin = SKIN[CATEGORY.get(model_node.type, "wait")]
-    ui.view.border_color = (*skin["border"], 255)
-    ui.view.accent = skin["accent"]
+    dress_node(ui, model_node)
     return ui
 
 
