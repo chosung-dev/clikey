@@ -22,7 +22,7 @@ HTLEFT, HTRIGHT = 10, 11
 HTTOP, HTTOPLEFT, HTTOPRIGHT = 12, 13, 14
 HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = 15, 16, 17
 
-RESIZE_MARGIN = 6          # 가장자리에서 리사이즈가 잡히는 두께(논리 px)
+RESIZE_MARGIN = 8          # 가장자리에서 리사이즈가 잡히는 두께(논리 px)
 
 # Windows 11 둥근 모서리
 DWMWA_WINDOW_CORNER_PREFERENCE = 33

@@ -454,6 +454,49 @@ def column_widths():
     return (T.COL_SHORTCUT, T.COL_NODES, T.COL_LASTRUN, T.COL_STATUS)
 
 
+#: 창이 좁아질 때 감출 순서 — 뒤로 갈수록 오래 남는다
+COLUMNS = ("nodes", "last", "shortcut", "status")
+
+
+def visible_columns(width: int) -> set:
+    """창 폭에 맞춰 남길 열. 이름과 상태는 어떤 폭에서도 남는다."""
+    shown = set(COLUMNS)
+    if width < T.BP_HIDE_NODES:
+        shown.discard("nodes")
+    if width < T.BP_HIDE_LASTRUN:
+        shown.discard("last")
+    if width < T.BP_HIDE_SHORTCUT:
+        shown.discard("shortcut")
+    return shown
+
+
+class SearchBox(QWidget):
+    """돋보기를 겹쳐 놓은 검색칸. 창 폭에 맞춰 늘었다 줄었다 한다.
+
+    돋보기를 레이아웃에 넣지 않고 입력칸 위에 겹쳐 두므로, 크기가 바뀔 때마다
+    직접 자리를 잡아준다.
+    """
+
+    def __init__(self, ratio: float, on_text, placeholder: str = "이름으로 검색"):
+        super().__init__()
+        self.setFixedHeight(34)
+        self.setMinimumWidth(150)
+        self.setMaximumWidth(300)
+
+        self.edit = QLineEdit(self)
+        self.edit.setObjectName("Search")
+        self.edit.setPlaceholderText(placeholder)
+        self.edit.textChanged.connect(on_text)
+
+        self.glass = QLabel(self)
+        self.glass.setPixmap(T.icon_pixmap("search", 14, T.INK_4, 1.5, ratio))
+
+    def resizeEvent(self, event):
+        self.edit.setGeometry(0, 0, self.width(), self.height())
+        self.glass.setGeometry(10, (self.height() - 14) // 2, 14, 14)
+        super().resizeEvent(event)
+
+
 class HeaderRow(QFrame):
     def __init__(self, columns=None):
         super().__init__()
@@ -468,14 +511,25 @@ class HeaderRow(QFrame):
         name.setObjectName("ColHead")
         lay.addWidget(name, 1)
 
+        self.cells = {}
         if columns is None:
-            columns = list(zip(("단축키", "노드", "마지막 실행", "상태"), column_widths()))
+            columns = list(zip(("shortcut", "nodes", "last", "status"),
+                               ("단축키", "노드", "마지막 실행", "상태"),
+                               column_widths()))
+        else:
+            columns = [(None, text, width) for text, width in columns]
 
-        for text, width in columns:
+        for key, text, width in columns:
             label = QLabel(text)
             label.setObjectName("ColHead")
             label.setFixedWidth(width)
             lay.addWidget(label)
+            if key:
+                self.cells[key] = label
+
+    def apply_columns(self, shown: set) -> None:
+        for key, widget in self.cells.items():
+            widget.setVisible(key in shown)
 
 
 class FolderRow(QFrame):
@@ -510,12 +564,17 @@ class FolderRow(QFrame):
         count = QLabel(f"{folder.count}개" if folder.count else "비어 있음")
         count.setObjectName("Cell" if folder.count else "CellMuted")
         count.setFixedWidth(T.COL_LASTRUN)
+        self.cells = {"last": count}
         lay.addWidget(count)
 
         arrow = QLabel()
         arrow.setPixmap(T.icon_pixmap("arrow_right", 13, T.INK_4, 1.5, ratio))
         arrow.setFixedWidth(24)
         lay.addWidget(arrow)
+
+    def apply_columns(self, shown: set) -> None:
+        for key, widget in self.cells.items():
+            widget.setVisible(key in shown)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.rect().contains(event.pos()):
@@ -577,16 +636,19 @@ class MacroRow(QFrame):
             kbd.setObjectName("KbdMuted" if dimmed else "Kbd")
             kbd.setFixedHeight(22)
             kbd.setAlignment(Qt.AlignCenter)
-            lay.addWidget(self._cell(kbd, T.COL_SHORTCUT))
+            cell = self._cell(kbd, T.COL_SHORTCUT)
         else:
             dash = QLabel("—")
             dash.setObjectName("CellEmpty")
-            lay.addWidget(self._cell(dash, T.COL_SHORTCUT))
+            cell = self._cell(dash, T.COL_SHORTCUT)
+        self.cells = {"shortcut": cell}
+        lay.addWidget(cell)
 
         # 노드 수
         nodes = QLabel(str(macro.nodes))
         nodes.setObjectName("CellMuted" if dimmed else "Cell")
-        lay.addWidget(self._cell(nodes, T.COL_NODES))
+        self.cells["nodes"] = self._cell(nodes, T.COL_NODES)
+        lay.addWidget(self.cells["nodes"])
 
         # 마지막 실행
         last = QLabel(macro.last_run)
@@ -596,7 +658,8 @@ class MacroRow(QFrame):
         elif dimmed:
             last.setObjectName("CellMuted")
         self.last_cell = last
-        lay.addWidget(self._cell(last, T.COL_LASTRUN))
+        self.cells["last"] = self._cell(last, T.COL_LASTRUN)
+        lay.addWidget(self.cells["last"])
 
         # 상태 — 실행 중에는 바꿔 끼울 수 있어야 하므로 자리를 들고 있는다
         self.status_slot = QWidget()
@@ -606,9 +669,14 @@ class MacroRow(QFrame):
                            Qt.AlignVCenter | Qt.AlignLeft)
         slot_lay.addStretch(1)
         self.status_slot.setFixedWidth(T.COL_STATUS)
+        self.cells["status"] = self.status_slot
         lay.addWidget(self.status_slot)
 
         self.icon_slot = None
+
+    def apply_columns(self, shown: set) -> None:
+        for key, widget in self.cells.items():
+            widget.setVisible(key in shown)
 
     def set_running(self, running: bool) -> None:
         """실행 상태에 맞춰 행 모습을 바꾼다."""
@@ -681,6 +749,10 @@ class HomeWindow(FramelessWindow):
         self._build_gen = 0
         self._pending_rows: List[Macro] = []
         self._stretch_added = False
+        #: 지금 보이고 있는 표의 열 (창 폭에 따라 바뀐다)
+        self._columns = visible_columns(1440)
+        # 창이 아주 작아지면 알아볼 수 없으므로 바닥을 정해둔다
+        self.setMinimumSize(720, 460)
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -856,14 +928,18 @@ class HomeWindow(FramelessWindow):
         self.meta_label.setText(f"폴더 {len(folders)}개" if folders else "폴더 없음")
 
         for folder in folders:
-            self.rows_box.addWidget(FolderRow(
-                folder, self.ratio, on_open=self._on_folder, on_menu=self.folder_menu))
+            row = FolderRow(folder, self.ratio,
+                            on_open=self._on_folder, on_menu=self.folder_menu)
+            row.apply_columns(self._columns)
+            self.rows_box.addWidget(row)
 
         if not folders:
             self.rows_box.addWidget(self._empty_state())
 
     def _build_macro_list(self) -> None:
-        self.head_box.addWidget(HeaderRow())
+        header = HeaderRow()
+        header.apply_columns(self._columns)
+        self.head_box.addWidget(header)
 
         shown = self.visible_macros()
         if self.query:
@@ -891,9 +967,10 @@ class HomeWindow(FramelessWindow):
         body.setUpdatesEnabled(False)          # 한 묶음을 그리는 동안 재배치를 미룬다
         try:
             for macro in macros:
-                self.rows_box.addWidget(MacroRow(
-                    macro, self.ratio,
-                    on_open=self.open_macro, on_menu=self.macro_menu))
+                row = MacroRow(macro, self.ratio,
+                               on_open=self.open_macro, on_menu=self.macro_menu)
+                row.apply_columns(self._columns)
+                self.rows_box.addWidget(row)
         finally:
             body.setUpdatesEnabled(True)
 
@@ -916,6 +993,32 @@ class HomeWindow(FramelessWindow):
 
         if not self._pending_rows:
             self._finish_rows()
+
+    # ------------------------------------------------------------ 창 크기
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_layout()
+
+    def _apply_layout(self) -> None:
+        """창 폭에 맞춰 사이드바를 좁히고 표에서 열을 덜어낸다."""
+        width = self.width()
+
+        self.sidebar.setFixedWidth(
+            T.SIDEBAR_W_NARROW if width < T.BP_NARROW_SIDEBAR else T.SIDEBAR_W)
+
+        columns = visible_columns(width)
+        if columns != self._columns:
+            self._columns = columns
+            for box in (self.head_box, self.rows_box):
+                for i in range(box.count()):
+                    widget = box.itemAt(i).widget()
+                    if hasattr(widget, "apply_columns"):
+                        widget.apply_columns(columns)
+
+        # 창이 커지면 아래에 빈 자리가 생긴다 — 채울 행이 남았으면 더 만든다
+        if self._pending_rows:
+            self._fill_viewport(self._build_gen)
 
     def _on_scrolled(self, value: int) -> None:
         if not self._pending_rows:
@@ -1438,19 +1541,11 @@ class HomeWindow(FramelessWindow):
         left.addWidget(self.meta_label)
         lay.addLayout(left)
         lay.addStretch(1)
+        # (아래 검색칸이 남는 폭을 가져가므로 이 stretch 는 최소 간격 노릇만 한다)
 
-        # 검색
-        search_wrap = QWidget()
-        search_wrap.setFixedSize(300, 34)
-        search = QLineEdit(search_wrap)
-        search.setObjectName("Search")
-        search.setPlaceholderText("이름으로 검색")
-        search.setGeometry(0, 0, 300, 34)
-        search.textChanged.connect(self._on_search)
-        glass = QLabel(search_wrap)
-        glass.setPixmap(T.icon_pixmap("search", 14, T.INK_4, 1.5, self.ratio))
-        glass.setGeometry(10, 10, 14, 14)
-        lay.addWidget(search_wrap)
+        # 검색 — 남는 자리를 나눠 가진다
+        self.search_box = SearchBox(self.ratio, self._on_search)
+        lay.addWidget(self.search_box, 1)
 
         self.new_btn = QPushButton()
         self.new_btn.setObjectName("NewMacro")

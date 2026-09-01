@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from core import hotkeys, prefs, runlog
 from core.graph import Graph
 from ui_qt import dialogs, node_view, theme as T
-from ui_qt.editor_panels import DRAG_PREFIX, Inspector, Palette
+from ui_qt.editor_panels import BP_NARROW_PANELS, DRAG_PREFIX, Inspector, Palette
 from ui_qt.fields import DEFAULTS
 from ui_qt.frameless import FramelessWindow
 from ui_qt.runner import MacroRunner, describe
@@ -91,6 +91,8 @@ class EditorWindow(FramelessWindow):
         self.setWindowTitle(f"{self.path.stem} — Clikey")
         self.setWindowIcon(QIcon(T.APP_ICON))
         self.resize(1280, 860)
+        # 캔버스가 사라질 만큼 작아지지는 않게 바닥을 정해둔다
+        self.setMinimumSize(760, 520)
 
         self.model = self._load()
 
@@ -538,6 +540,15 @@ class EditorWindow(FramelessWindow):
         # 실행·중지 키는 상단 버튼에 이미 적혀 있으므로 여기서 되풀이하지 않는다
 
     # ------------------------------------------------------------ 실행
+
+    # ------------------------------------------------------------ 창 크기
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # 창이 좁아지면 양옆 패널을 먼저 줄인다 — 캔버스가 마지막까지 남게
+        narrow = self.width() < BP_NARROW_PANELS
+        self.palette.set_narrow(narrow)
+        self.inspector.set_narrow(narrow)
 
     def run_macro(self) -> None:
         if self.runner.running:

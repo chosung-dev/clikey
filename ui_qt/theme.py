@@ -44,6 +44,14 @@ RADIUS_CTRL = 6
 RADIUS_CARD = 8
 CTRL_H = 32
 SIDEBAR_W = 272
+SIDEBAR_W_NARROW = 208     # 창이 좁을 때 사이드바 폭
+
+# 창 폭이 이보다 좁아지면 표에서 열을 하나씩 감춘다.
+# 이름과 상태는 어떤 폭에서도 남는다.
+BP_HIDE_NODES = 1180
+BP_HIDE_LASTRUN = 1010
+BP_HIDE_SHORTCUT = 860
+BP_NARROW_SIDEBAR = 1120
 ROW_H = 62
 
 # 표 컬럼 폭 (이름은 남는 공간을 차지)

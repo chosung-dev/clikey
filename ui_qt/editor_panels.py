@@ -30,6 +30,11 @@ from ui_qt.node_view import CATEGORY, LABEL, SKIN
 PALETTE_W = 220
 INSPECTOR_W = 296
 
+# 창이 좁을 때 쓰는 폭 — 캔버스가 너무 눌리지 않게 양옆을 먼저 줄인다
+PALETTE_W_NARROW = 176
+INSPECTOR_W_NARROW = 236
+BP_NARROW_PANELS = 1040
+
 # 칩 배경 — node_view.SKIN 의 테두리/강조와 짝이 되는 연한 색
 CHIP_BG = {
     "input": "#EDF1FB",
@@ -190,7 +195,23 @@ class PaletteItem(QFrame):
         drag.exec(Qt.CopyAction)
 
 
-SEARCH_W = PALETTE_W - 20
+class SearchBox(QWidget):
+    """돋보기를 겹쳐 놓은 검색칸. 패널 폭이 바뀌면 따라 늘었다 줄었다 한다."""
+
+    def __init__(self, ratio: float, placeholder: str):
+        super().__init__()
+        self.setFixedHeight(30)
+        self.edit = QLineEdit(self)
+        self.edit.setObjectName("Search")
+        self.edit.setPlaceholderText(placeholder)
+        self.edit.setClearButtonEnabled(True)
+        self.glass = QLabel(self)
+        self.glass.setPixmap(T.icon_pixmap("search", 13, T.INK_4, 1.5, ratio))
+
+    def resizeEvent(self, event):
+        self.edit.setGeometry(0, 0, self.width(), self.height())
+        self.glass.setGeometry(9, (self.height() - 13) // 2, 13, 13)
+        super().resizeEvent(event)
 
 
 class Palette(QWidget):
@@ -210,20 +231,11 @@ class Palette(QWidget):
         search_wrap = QWidget()
         sw = QHBoxLayout(search_wrap)
         sw.setContentsMargins(10, 10, 10, 10)
-        # 돋보기를 입력칸 위에 겹쳐 둔다 — 홈 화면 검색과 같은 방식
-        box = QWidget()
-        box.setFixedSize(SEARCH_W, 30)
-        self.search = QLineEdit(box)
-        self.search.setObjectName("Search")
-        self.search.setPlaceholderText("노드 검색")
-        self.search.setGeometry(0, 0, SEARCH_W, 30)
-        self.search.setClearButtonEnabled(True)
+        box = SearchBox(ratio, "노드 검색")
+        self.search = box.edit
         self.search.textChanged.connect(self._filter)
         self.search.returnPressed.connect(self._add_first)
         self.search.installEventFilter(self)
-        glass = QLabel(box)
-        glass.setPixmap(T.icon_pixmap("search", 13, T.INK_4, 1.5, ratio))
-        glass.setGeometry(9, 8, 13, 13)
         sw.addWidget(box)
         root.addWidget(search_wrap)
 
@@ -261,6 +273,9 @@ class Palette(QWidget):
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         area.setWidget(body)
         root.addWidget(area, 1)
+
+    def set_narrow(self, narrow: bool) -> None:
+        self.setFixedWidth(PALETTE_W_NARROW if narrow else PALETTE_W)
 
     def focus_search(self) -> None:
         self.search.setFocus()
@@ -387,7 +402,7 @@ PORT_NAME = {"next": "다음", "true": "참", "false": "거짓",
 
 
 class Inspector(QWidget):
-    """선택한 노드의 값을 보여준다 (읽기 전용)."""
+    """선택한 노드의 값을 보여주고 고친다."""
 
     def __init__(self, ratio: float):
         super().__init__()
@@ -426,6 +441,9 @@ class Inspector(QWidget):
         self.show_node(None, None)
 
     # ------------------------------------------------------------
+
+    def set_narrow(self, narrow: bool) -> None:
+        self.setFixedWidth(INSPECTOR_W_NARROW if narrow else INSPECTOR_W)
 
     def _clear(self, layout) -> None:
         while layout.count():
