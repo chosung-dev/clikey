@@ -205,15 +205,17 @@ class GraphExecutor:
         return None
 
     def _do_loop(self, node: Node) -> str:
+        """몸통을 최대 횟수만큼 되풀이한 뒤 done 으로 나간다.
+
+        세는 것은 '이 노드에 들른 횟수' 가 아니라 '몸통으로 내보낸 횟수' 다.
+        들른 횟수로 세면 마지막 한 바퀴가 사라져 max=1 이면 몸통이 한 번도
+        돌지 않는다.
+        """
         limit = int(node.params.get("max", 0) or 0)
-        count = self._loop_counts.get(node.id, 0) + 1
+        sent = self._loop_counts.get(node.id, 0)
 
-        if limit <= 0:                      # 0 = 무한
-            self._loop_counts[node.id] = count
-            return "loop"
-
-        if count < limit:
-            self._loop_counts[node.id] = count
+        if limit <= 0 or sent < limit:      # 0 = 무한
+            self._loop_counts[node.id] = sent + 1
             return "loop"
 
         self._loop_counts[node.id] = 0      # 다시 들어올 때를 위해 초기화

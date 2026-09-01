@@ -159,7 +159,7 @@ def test_dangling_edge_completes():
 
 
 def test_loop_node_runs_body_then_exits():
-    """loop(max=3): loop 포트로 2번 나간 뒤 3번째에 done 으로 빠진다."""
+    """loop(max=3): 몸통을 세 번 돌린 뒤 done 으로 빠진다."""
     g = Graph()
     g.add_node("start", node_id="n1")
     g.add_node("delay", {"seconds": 0}, node_id="body")
@@ -172,7 +172,8 @@ def test_loop_node_runs_body_then_exits():
 
     visited, result, _ = trace(GraphExecutor, g)
 
-    assert visited == ["n1", "lp", "body", "lp", "body", "lp", "end"], visited
+    assert visited == ["n1", "lp", "body", "lp", "body", "lp", "body",
+                       "lp", "end"], visited
     assert result.reason == StopReason.STOP_NODE
 
 
@@ -185,8 +186,26 @@ def test_loop_counter_resets_for_reentry():
 
     ex = GraphExecutor(g)
     assert ex._do_loop(g.nodes["lp"]) == "loop"
+    assert ex._do_loop(g.nodes["lp"]) == "loop"
     assert ex._do_loop(g.nodes["lp"]) == "done"
     assert ex._do_loop(g.nodes["lp"]) == "loop"
+
+
+def test_loop_of_one_still_runs_the_body_once():
+    """max=1 이 몸통을 한 번도 돌리지 않던 버그를 붙잡아 둔다."""
+    g = Graph()
+    g.add_node("start", node_id="n1")
+    g.add_node("delay", {"seconds": 0}, node_id="body")
+    g.add_node("loop", {"max": 1}, node_id="lp")
+    g.add_node("stop", node_id="end")
+    g.connect("n1", "lp")
+    g.connect("lp", "body", "loop")
+    g.connect("body", "lp")
+    g.connect("lp", "end", "done")
+
+    visited, _, _ = trace(GraphExecutor, g)
+
+    assert visited.count("body") == 1, visited
 
 
 def test_infinite_loop_hits_step_cap():

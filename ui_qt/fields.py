@@ -578,8 +578,8 @@ FIELDS: Dict[str, List[Spec]] = {
          {"decimals": 2, "minimum": 0, "maximum": 3600, "suffix": "초"}, "초 단위"),
     ],
     "loop": [
-        ("max", "최대 반복", "number", {"minimum": 0, "maximum": 1000000},
-         "0 이면 중지할 때까지 반복합니다"),
+        ("max", "반복 횟수", "number", {"minimum": 0, "maximum": 1000000},
+         "몸통을 이만큼 되풀이한 뒤 완료로 나갑니다. 0 이면 중지할 때까지."),
     ],
     "rgb_match": [
         ("pos", "좌표", "point", {}, ""),
