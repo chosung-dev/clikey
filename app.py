@@ -1,5 +1,4 @@
 """Clikey 진입점."""
-import os
 import sys
 import threading
 import time
@@ -7,9 +6,9 @@ import webbrowser
 
 _startup_time = time.perf_counter()
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QObject, Signal  # noqa: E402
 from PySide6.QtGui import QIcon  # noqa: E402
-from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from core.persistence import load_app_state, save_app_state  # noqa: E402
 from core.version import (  # noqa: E402
@@ -18,43 +17,53 @@ from core.version import (  # noqa: E402
     get_release_url,
     is_update_available,
 )
-from ui_qt import theme as T  # noqa: E402
+from ui_qt import dialogs, theme as T  # noqa: E402
 from ui_qt.home import HomeWindow  # noqa: E402
 from utils.admin_utils import request_admin_if_needed  # noqa: E402
 
 UPDATE_CHECK_INTERVAL = 86400  # 하루
 
 
-def check_update(window) -> None:
-    """하루에 한 번 새 버전을 확인한다. 실패는 조용히 넘긴다."""
-    try:
-        state = load_app_state()
-        now = time.time()
-        if now - state.get("last_update_check", 0) < UPDATE_CHECK_INTERVAL:
-            return
+class UpdateChecker(QObject):
+    """하루에 한 번 새 버전을 확인한다. 실패는 조용히 넘긴다.
 
-        latest = get_latest_version()
-        state["last_update_check"] = now
-        save_app_state(state)
+    확인은 네트워크를 타므로 백그라운드에서, 알림은 UI 스레드에서 한다.
+    그 사이를 신호로 잇는 이유는 단축키 콜백과 같다 — 백그라운드 스레드에는
+    이벤트 루프가 없어 QTimer 로는 아무 일도 일어나지 않는다.
+    """
 
-        if not (latest and is_update_available(__version__, latest)):
-            return
+    found = Signal(str)
 
-        def ask():
-            answer = QMessageBox.question(
-                window,
-                "업데이트 확인",
-                f"업데이트가 있습니다.\n다운로드 하러 가시겠습니까?\n\n"
-                f"현재 버전: {__version__}\n최신 버전: {latest}",
-            )
-            if answer == QMessageBox.Yes:
-                webbrowser.open(get_release_url())
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+        self.found.connect(self._ask)
 
-        # UI 스레드로 넘긴다
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, ask)
-    except Exception:
-        pass
+    def start(self) -> None:
+        threading.Thread(target=self._look, daemon=True).start()
+
+    def _look(self) -> None:
+        try:
+            state = load_app_state()
+            now = time.time()
+            if now - state.get("last_update_check", 0) < UPDATE_CHECK_INTERVAL:
+                return
+
+            latest = get_latest_version()
+            save_app_state({"last_update_check": now})
+
+            if latest and is_update_available(__version__, latest):
+                self.found.emit(latest)
+        except Exception:
+            pass
+
+    def _ask(self, latest: str) -> None:
+        if dialogs.confirm(
+            self.window, "업데이트가 있습니다",
+            f"현재 버전 {__version__}\n최신 버전 {latest}\n\n다운로드 페이지를 열까요?",
+            ok_text="열기",
+        ):
+            webbrowser.open(get_release_url())
 
 
 def main() -> int:
@@ -69,7 +78,7 @@ def main() -> int:
     window = HomeWindow(ratio=app.devicePixelRatio())
     window.show()
 
-    threading.Thread(target=check_update, args=(window,), daemon=True).start()
+    UpdateChecker(window).start()
 
     print(f"[Startup] UI ready in {time.perf_counter() - _startup_time:.3f}s")
     return app.exec()
