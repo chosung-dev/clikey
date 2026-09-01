@@ -326,12 +326,13 @@ def _install_port_painting() -> None:
         # PORT_COLORS 는 16진수 문자열, port_color() 는 RGBA 튜플을 준다.
         # 여기서는 문자열이 필요하다.
         tint = PORT_COLORS.get(self.name, T.FLOW)
+        # 아직 잇지 않았어도 갈래 색을 입힌다 — 어느 쪽이 어느 갈래인지
+        # 연결하기 전에 알아야 잘못 잇지 않는다.
+        # 이어졌는지는 가운데를 채우는 것으로 구분한다.
         if self._hovered:
             ring, fill = T.ACCENT, T.ACCENT_BG
-        elif self.connected_pipes:
-            ring, fill = tint, T.BG
         else:
-            ring, fill = T.RULE_4, T.BG
+            ring, fill = tint, T.BG
 
         painter.setPen(QtGui.QPen(QtGui.QColor(*_rgb(ring)), 1.6))
         painter.setBrush(QtGui.QColor(*_rgb(fill)))

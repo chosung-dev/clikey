@@ -51,11 +51,13 @@ SIDEBAR_W_NARROW = 208     # 창이 좁을 때 사이드바 폭
 
 # 창 폭이 이보다 좁아지면 표에서 열을 하나씩 감춘다.
 # 이름과 상태는 어떤 폭에서도 남는다.
+# 좁아질 때 사라지는 차례: 노드 수 -> 마지막 실행 -> 폴더 목록 -> 단축키.
+# 단축키는 이 화면에서 매크로를 돌리는 수단이라 가장 오래 남긴다.
 BP_HIDE_NODES = 1180
 BP_HIDE_LASTRUN = 1010
-BP_HIDE_SHORTCUT = 860
 BP_NARROW_SIDEBAR = 1120
-BP_HIDE_SIDEBAR = 780      # 이보다 좁으면 폴더 목록을 접고 버튼으로만 연다
+BP_HIDE_SIDEBAR = 860      # 이보다 좁으면 폴더 목록을 접고 버튼으로만 연다
+BP_HIDE_SHORTCUT = 700
 ROW_H = 62
 
 # 표 컬럼 폭 (이름은 남는 공간을 차지)
