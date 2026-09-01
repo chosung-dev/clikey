@@ -339,19 +339,12 @@ class KeyField(QWidget):
         bl.addStretch(1)
         lay.addWidget(self.box, 1)
 
-        self.button = QPushButton("키 잡기")
+        self.button = QPushButton("키 설정")
         self.button.setObjectName("GhostBtn")
         self.button.setFixedHeight(32)
         self.button.setCursor(Qt.PointingHandCursor)
         self.button.clicked.connect(self._toggle)
         lay.addWidget(self.button)
-
-        self.clear_btn = QPushButton("해제")
-        self.clear_btn.setObjectName("GhostBtn")
-        self.clear_btn.setFixedHeight(32)
-        self.clear_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_btn.clicked.connect(self._clear)
-        lay.addWidget(self.clear_btn)
         root.addWidget(row)
 
         self.note = QLabel()
@@ -370,7 +363,7 @@ class KeyField(QWidget):
             self.label.setStyleSheet(
                 f"font-family: '{T.mono_stack()}'; font-size: 12px;")
         self.box.setProperty("listening", self.listening)
-        self.button.setText("취소" if self.listening else "키 잡기")
+        self.button.setText("취소" if self.listening else "키 설정")
         self.box.style().unpolish(self.box)
         self.box.style().polish(self.box)
 
@@ -391,14 +384,6 @@ class KeyField(QWidget):
             self._say("")
             self.releaseKeyboard()
         self._refresh()
-
-    def _clear(self) -> None:
-        if self.listening:
-            self._toggle()
-        self.value = ""
-        self._say("")
-        self._refresh()
-        self.on_change("")
 
     def keyPressEvent(self, event):
         if not self.listening:
