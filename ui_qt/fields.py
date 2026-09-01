@@ -183,12 +183,17 @@ class PointField(QWidget):
     대신 "그 노드가 찾은 곳" 이라고 적어둔다.
     """
 
-    def __init__(self, pos, on_change: Setter, sources=None):
+    def __init__(self, pos, on_change: Setter, sources=None, pick=None,
+                 also_color=None):
         super().__init__()
         self.pos = dict(pos) if isinstance(pos, dict) else {"x": 0, "y": 0}
         self.on_change = on_change
         #: [(노드 id, 보여줄 이름)] — 좌표를 남기는 앞선 노드들
         self.sources = list(sources or [])
+        #: 캔버스에서 직접 고르게 하는 편집기 쪽 기능
+        self.pick = pick
+        #: 색상 일치 노드에서는 좌표를 집을 때 그 자리 색도 함께 담는다
+        self.also_color = also_color
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -242,7 +247,8 @@ class PointField(QWidget):
             row.addWidget(wrap, 1)
         lay.addLayout(row)
 
-        capture = QPushButton("화면에서 좌표 집기")
+        capture = QPushButton("화면에서 좌표 집기"
+                              + (" · 색상" if self.also_color else ""))
         capture.setObjectName("GhostBtn")
         capture.setFixedHeight(30)
         capture.setCursor(Qt.PointingHandCursor)
@@ -256,6 +262,11 @@ class PointField(QWidget):
             follow.setCursor(Qt.PointingHandCursor)
             follow.clicked.connect(lambda: self._pick_source(follow))
             lay.addWidget(follow)
+
+            hint = QLabel("캔버스에서 좌표를 가져올 노드를 클릭합니다")
+            hint.setWordWrap(True)
+            hint.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
+            lay.addWidget(hint)
 
     def _name_of(self, node_id: str) -> str:
         for nid, name in self.sources:
@@ -279,8 +290,20 @@ class PointField(QWidget):
             edit.setText(edit._format(self.pos[axis]))
             edit._last = edit.text()
         self.on_change(dict(self.pos))
+        # 색상 일치라면 그 자리의 색까지 한 번에 담는다
+        if self.also_color:
+            self.also_color(list(picked.rgb))
 
     def _pick_source(self, anchor: QWidget) -> None:
+        """캔버스에서 직접 고르게 한다.
+
+        노드 id 만 늘어놓은 목록으로는 그게 어느 노드인지 알 수가 없다.
+        편집기 쪽을 쓸 수 없을 때만 목록으로 물러난다.
+        """
+        if self.pick is not None:
+            self.pick([nid for nid, _ in self.sources], self._to_ref)
+            return
+
         menu = QMenu(self)
         for nid, name in self.sources:
             menu.addAction(name, lambda i=nid: self._to_ref(i))
@@ -621,15 +644,9 @@ class ColorField(QWidget):
         bl.addStretch(1)
         lay.addWidget(self.box, 1)
 
-        screen = QPushButton("화면에서")
-        screen.setObjectName("GhostBtn")
-        screen.setFixedHeight(32)
-        screen.setCursor(Qt.PointingHandCursor)
-        screen.setToolTip("화면에서 색을 집습니다")
-        screen.clicked.connect(self._from_screen)
-        lay.addWidget(screen)
-
-        pick = QPushButton("고르기")
+        # 화면에서 집는 일은 좌표 칸이 함께 한다 — 같은 자리를 두 번 집게 하지
+        # 않으려고 여기서는 뺐다.
+        pick = QPushButton("직접 고르기")
         pick.setObjectName("GhostBtn")
         pick.setFixedHeight(32)
         pick.setCursor(Qt.PointingHandCursor)
@@ -637,16 +654,6 @@ class ColorField(QWidget):
         lay.addWidget(pick)
 
         self._refresh()
-
-    def _from_screen(self) -> None:
-        from ui_qt.picker import pick_from_screen
-
-        picked = pick_from_screen(self.window())
-        if picked is None:
-            return
-        self.color = list(picked.rgb)
-        self._refresh()
-        self.on_change(list(self.color))
 
     def _refresh(self) -> None:
         r, g, b = self.color
@@ -967,7 +974,8 @@ def build_widget(kind: str, value, options: Dict[str, Any], on_change: Setter) -
     if kind == "choice":
         return ChoiceField(options["options"], value, on_change)
     if kind == "point":
-        return PointField(value, on_change, options.get("sources"))
+        return PointField(value, on_change, options.get("sources"),
+                          options.get("pick"), options.get("also_color"))
     if kind == "color":
         return ColorField(value, on_change)
     if kind == "image":

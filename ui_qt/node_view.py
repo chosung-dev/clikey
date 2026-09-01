@@ -132,6 +132,7 @@ class ClikeyNodeItem(NodeItem):
         self.detail = ""
         self.accent = SKIN["wait"]["accent"]
         self.running = False                 # 실행 중 이 노드를 지나는 중
+        self.dimmed = False                  # 고를 수 없는 노드 (좌표 고르는 중)
         self.text_item.setVisible(False)     # 내장 라벨은 카드 밖에 그려진다
         # 위치가 바뀔 때 알림을 받아야 끌면서 맞출 수 있다
         self.setFlag(QtWidgets.QGraphicsItem.ItemSendsGeometryChanges, True)
@@ -199,6 +200,9 @@ class ClikeyNodeItem(NodeItem):
     def paint(self, painter, option, widget=None):
         painter.save()
         painter.setRenderHint(painter.RenderHint.Antialiasing, True)
+        # 좌표를 가져올 노드를 고르는 중에는 고를 수 없는 것들을 물린다
+        if self.dimmed:
+            painter.setOpacity(0.25)
 
         rect = self.boundingRect().adjusted(1.0, 1.0, -1.0, -1.0)
         path = QtGui.QPainterPath()
@@ -494,6 +498,46 @@ def _install_port_colors() -> None:
     PipeItem._clikey_port_colors = True
 
 
+def _install_right_drag_pan() -> None:
+    """우클릭을 가운데 버튼처럼 — 눌러 끌면 화면이 따라온다.
+
+    NodeGraphQt 의 우클릭 메뉴에는 되돌리기·선택 같은 항목이 들어 있는데 이
+    앱에는 맞지 않는다. 메뉴를 없애고 그 자리를 화면 끌기로 채운다.
+
+    메뉴를 띄우는 기본 처리가 우클릭을 누른 시점에 RMB_state 를 꺼 버리므로,
+    그 처리를 통째로 막아야 끌기가 이어진다.
+    """
+    if getattr(NodeViewer, "_clikey_right_pan", False):
+        return
+
+    original_move = NodeViewer.mouseMoveEvent
+    original_release = NodeViewer.mouseReleaseEvent
+
+    def context_menu_event(self, event):
+        event.accept()          # 메뉴 없음. RMB_state 도 건드리지 않는다.
+
+    def mouse_move(self, event):
+        if self.RMB_state and not self.ALT_state:
+            before = self.mapToScene(self._previous_pos)
+            now = self.mapToScene(event.pos())
+            delta = before - now
+            self._set_viewer_pan(delta.x(), delta.y())
+            self._previous_pos = event.pos()
+            self.setCursor(QtCore.Qt.ClosedHandCursor)
+            return
+        return original_move(self, event)
+
+    def mouse_release(self, event):
+        if event.button() == QtCore.Qt.RightButton:
+            self.unsetCursor()
+        return original_release(self, event)
+
+    NodeViewer.contextMenuEvent = context_menu_event
+    NodeViewer.mouseMoveEvent = mouse_move
+    NodeViewer.mouseReleaseEvent = mouse_release
+    NodeViewer._clikey_right_pan = True
+
+
 def _hide_pipe_arrows() -> None:
     """연결선 가운데 화살표를 없앤다.
 
@@ -568,6 +612,7 @@ def _drop_builtin_undo_shortcuts(viewer) -> None:
 def make_graph_widget() -> NodeGraph:
     _theme_pipe_constants()
     _install_port_painting()
+    _install_right_drag_pan()
     _hide_pipe_arrows()
     _install_back_edge_routing()
     _install_port_colors()

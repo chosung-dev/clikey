@@ -371,6 +371,8 @@ class Inspector(QWidget):
         self.setObjectName("Panel")
         self.setFixedWidth(INSPECTOR_W)
         self.tolerance = None
+        #: 편집기가 넣어준다 — 좌표를 가져올 노드를 캔버스에서 고르게 한다
+        self.on_pick_coord = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -424,6 +426,8 @@ class Inspector(QWidget):
         self._clear(self.body_lay)
         self.on_change = on_change
         self.tolerance = None
+        self.node = node
+        self.graph = graph
 
         if node is None:
             title = QLabel("속성")
@@ -482,7 +486,12 @@ class Inspector(QWidget):
         for key, label, kind, options, hint in specs:
             if kind == "point":
                 options = dict(options,
-                               sources=self._locator_sources(node, graph))
+                               sources=self._locator_sources(node, graph),
+                               pick=self.on_pick_coord)
+                if "color" in node.params:
+                    # 색상 일치는 좌표를 집을 때 그 자리 색까지 함께 담는다
+                    options["also_color"] = (
+                        lambda rgb, n=node: self._captured_color(n, rgb))
             elif kind == "tolerance":
                 options = dict(options, base=node.params.get("color"))
             widget = build_widget(
@@ -495,6 +504,11 @@ class Inspector(QWidget):
                 self.tolerance = widget
             out.append(field(label, widget, hint))
         return out
+
+    def _captured_color(self, node: Node, rgb) -> None:
+        """좌표와 함께 집은 색을 넣고, 견본까지 보이도록 패널을 다시 그린다."""
+        self._changed(node, "color", rgb)
+        self.show_node(node, self.graph, self.on_change)
 
     def _changed(self, node: Node, key: str, value) -> None:
         # 기준 색이 바뀌면 허용 오차 견본도 따라가야 한다

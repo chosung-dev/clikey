@@ -104,6 +104,8 @@ class EditorWindow(FramelessWindow):
         self.ng = node_view.make_graph_widget()
         self.made = node_view.populate(self.model, self.ng)
         self._dropped_edges = self._undrawn_edges()
+        self._pick_targets = set()      # 좌표를 가져올 후보 (고르는 중일 때만)
+        self._pick_done = None
         self.by_ui_name = {ui.name(): nid for nid, ui in self.made.items()}
 
         middle = QHBoxLayout()
@@ -118,6 +120,7 @@ class EditorWindow(FramelessWindow):
 
         middle.addWidget(self._vrule())
         self.inspector = Inspector(ratio)
+        self.inspector.on_pick_coord = self.begin_pick_coord
         middle.addWidget(self.inspector)
 
         middle_holder = QWidget()
@@ -175,6 +178,7 @@ class EditorWindow(FramelessWindow):
         QShortcut(QKeySequence("Ctrl+A"), self, self.ng.select_all)
         QShortcut(QKeySequence("Ctrl+D"), self, self.duplicate_selected)
         QShortcut(QKeySequence("Ctrl+F"), self, self.palette.focus_search)
+        QShortcut(QKeySequence("Escape"), self, self.end_pick_coord)
         # Windows 에서 QKeySequence.Redo 는 Ctrl+Y 다. 같은 키를 두 번 걸면
         # Qt 가 모호하다고 보고 아무것도 실행하지 않으므로 직접 지정한다.
         QShortcut(QKeySequence("Ctrl+Z"), self, self.undo)
@@ -428,8 +432,12 @@ class EditorWindow(FramelessWindow):
         self.record_history()
         self._check_dirty()
 
-    def _delete_selected_pipes(self) -> bool:
-        """고른 연결선을 끊는다. 하나라도 끊었으면 True."""
+    def _delete_selected_pipes(self, record: bool = True) -> bool:
+        """고른 연결선을 끊는다. 하나라도 끊었으면 True.
+
+        `record=False` 는 곧이어 노드도 지울 때 — 되돌리기 기록은 한 번만
+        남기려는 것이다.
+        """
         pipes = self.ng.viewer().selected_pipes()
         if not pipes:
             return False
@@ -455,18 +463,17 @@ class EditorWindow(FramelessWindow):
         if not cut:
             return False
 
-        self._refresh_status()
-        self.record_history()
-        self._check_dirty()
+        if record:
+            self._refresh_status()
+            self.record_history()
+            self._check_dirty()
         return True
 
     def delete_selected(self) -> None:
-        # 선을 골랐으면 선만 끊는다
-        if self._delete_selected_pipes():
-            return
-
         selected = self.ng.selected_nodes()
         if not selected:
+            # 선만 골랐을 때
+            self._delete_selected_pipes()
             return
 
         removing = [self.by_ui_name.get(ui.name()) for ui in selected]
@@ -480,6 +487,10 @@ class EditorWindow(FramelessWindow):
             dialogs.alert(self, "지울 수 없음",
                           f"{names} 노드는 매크로에 항상 있어야 합니다.")
             return
+
+        # 노드와 선을 함께 골랐으면 한 번에 지운다. 선부터 끊고 멈추면
+        # 노드가 남아 두 번 눌러야 했다.
+        self._delete_selected_pipes(record=False)
 
         for node_id in removing:
             self.model.remove_node(node_id)
@@ -640,6 +651,38 @@ class EditorWindow(FramelessWindow):
 
     # ------------------------------------------------------------ 선택
 
+    # ------------------------------------------------------------ 좌표 가져오기
+
+    def begin_pick_coord(self, candidates, on_pick) -> None:
+        """좌표를 가져올 노드를 캔버스에서 직접 고르게 한다.
+
+        목록에 노드 id 를 늘어놓아도 그게 어느 노드인지 알 방법이 없다.
+        고를 수 있는 노드만 남기고 나머지는 흐리게 해서 눈으로 고르게 한다.
+        """
+        self._pick_targets = set(candidates)
+        self._pick_done = on_pick
+        if not self._pick_targets:
+            return
+
+        self.ng.clear_selection()
+        for node_id, ui in self.made.items():
+            ui.view.dimmed = node_id not in self._pick_targets
+            ui.view.update()
+        self.status.setText("좌표를 가져올 노드를 클릭하세요  ·  Esc 취소")
+
+    def end_pick_coord(self) -> None:
+        if not self._pick_targets:
+            return
+        self._pick_targets = set()
+        self._pick_done = None
+        for ui in self.made.values():
+            ui.view.dimmed = False
+            ui.view.update()
+        self._refresh_status()
+
+    def _picking(self) -> bool:
+        return bool(self._pick_targets)
+
     def _on_selection(self, selected=None, deselected=None) -> None:
         """캔버스에서 고른 노드를 속성 패널에 보여준다.
 
@@ -648,6 +691,19 @@ class EditorWindow(FramelessWindow):
         믿으면 속성 패널이 꺼져 버린다. 그래서 캔버스에 직접 물어본다.
         """
         nodes = self.ng.selected_nodes()
+
+        if self._picking():
+            # 고르는 중에는 선택이 곧 "이 노드의 좌표를 쓰겠다" 는 뜻이다
+            if len(nodes) == 1:
+                node_id = self.by_ui_name.get(nodes[0].name())
+                if node_id in self._pick_targets:
+                    done = self._pick_done
+                    self.end_pick_coord()
+                    if done:
+                        done(node_id)
+                    return
+            return
+
         if len(nodes) != 1:
             self.inspector.show_node(None, None)
             return
