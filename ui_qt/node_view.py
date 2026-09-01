@@ -415,11 +415,13 @@ def _install_back_edge_routing() -> None:
 
 #: 갈래가 둘인 노드에서 어느 쪽으로 나가는 선인지 색으로 가른다.
 #: 예전에 붙여 두었던 "참"/"거짓" 글자를 뺀 뒤로는 둘이 구분되지 않았다.
+#:
+#: 색은 둘만 쓴다 — 일이 이어지는 쪽(참 · 반복)은 초록, 비껴가는 쪽(거짓)은
+#: 회색. 완료는 따로 칠하지 않아 기본색으로 남는다.
 PORT_COLORS = {
     "true": T.RUN,
-    "false": T.DANGER,
-    "loop": "#7350B8",
-    "done": T.INK_3,
+    "loop": T.RUN,
+    "false": T.INK_3,
 }
 
 
