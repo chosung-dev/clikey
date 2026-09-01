@@ -304,16 +304,51 @@ def summarize(node) -> str:
 # ---------------------------------------------------------------- 캔버스
 
 
-def _tint_port(made_port, name: str) -> None:
-    """포트 점도 같은 색으로 — 아직 잇지 않았을 때도 어느 쪽인지 알게."""
-    tint = port_color(name)
-    if tint is None or made_port is None:
+def _install_port_painting() -> None:
+    """포트 점을 직접 그린다.
+
+    NodeGraphQt 는 이어진 포트를 한 가지 색으로만 칠해서, 거짓 갈래의 점까지
+    흐름과 같은 색이 됐다. 게다가 기본 배색이 형광 초록이라 나머지 화면과
+    따로 논다. 흰 알맹이에 가는 테두리로 바꾸고, 색은 그 포트의 갈래를
+    따르게 한다.
+    """
+    if getattr(PortItem, "_clikey_painting", False):
         return
-    try:
-        made_port.view.color = tint
-        made_port.view.border_color = tint
-    except Exception:
-        pass
+
+    def paint(self, painter, option, widget):
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+
+        size = self._width / 2.2
+        center = self.boundingRect().center()
+        dot = QtCore.QRectF(center.x() - size / 2, center.y() - size / 2, size, size)
+
+        # PORT_COLORS 는 16진수 문자열, port_color() 는 RGBA 튜플을 준다.
+        # 여기서는 문자열이 필요하다.
+        tint = PORT_COLORS.get(self.name, T.FLOW)
+        if self._hovered:
+            ring, fill = T.ACCENT, T.ACCENT_BG
+        elif self.connected_pipes:
+            ring, fill = tint, T.BG
+        else:
+            ring, fill = T.RULE_4, T.BG
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(*_rgb(ring)), 1.6))
+        painter.setBrush(QtGui.QColor(*_rgb(fill)))
+        painter.drawEllipse(dot)
+
+        # 이어져 있으면 가운데를 채워 한눈에 구분되게
+        if self.connected_pipes and not self._hovered:
+            inner = size / 2.6
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(QtGui.QColor(*_rgb(tint)))
+            painter.drawEllipse(QtCore.QRectF(
+                center.x() - inner / 2, center.y() - inner / 2, inner, inner))
+
+        painter.restore()
+
+    PortItem.paint = paint
+    PortItem._clikey_painting = True
 
 
 def _theme_pipe_constants() -> None:
@@ -531,6 +566,7 @@ def _drop_builtin_undo_shortcuts(viewer) -> None:
 
 def make_graph_widget() -> NodeGraph:
     _theme_pipe_constants()
+    _install_port_painting()
     _hide_pipe_arrows()
     _install_back_edge_routing()
     _install_port_colors()
@@ -576,8 +612,7 @@ def populate(model: Graph, ng: NodeGraph) -> Dict[str, object]:
         for port in node.ports:
             # 출력 하나에서 갈 수 있는 다음 노드는 하나뿐이다. 다중 연결을 허용하면
             # 화면에는 선이 둘 그려지는데 실행은 하나만 따라가 조용히 어긋난다.
-            made_port = ui.add_output(port, display_name=False, multi_output=False)
-            _tint_port(made_port, port)
+            ui.add_output(port, display_name=False, multi_output=False)
 
         skin = SKIN[CATEGORY.get(node.type, "wait")]
         ui.view.border_color = (*skin["border"], 255)
