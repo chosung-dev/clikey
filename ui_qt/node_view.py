@@ -319,12 +319,15 @@ def _tint_port(made_port, name: str) -> None:
 def _theme_pipe_constants() -> None:
     """연결선 기본색·강조색을 시안 색으로.
 
+    기본색은 초록이다 — 실행이 흘러가는 길이 곧 기본이고, 거기서 비껴가는
+    갈래만 회색으로 물러난다.
+
     NodeGraphQt 는 이 값들을 Enum 상수에서 직접 읽는다. Enum 은 `.value` 대입을
     막으므로 내부 `_value_` 를 바꾼다. 기본 강조색(노랑)이 밝은 테마에서 튀어
     보여 어쩔 수 없이 쓰는 우회다.
     """
     for member, color in (
-        (PipeEnum.COLOR, (*_rgb(T.INK_4), 255)),
+        (PipeEnum.COLOR, (*_rgb(T.RUN), 255)),
         (PipeEnum.HIGHLIGHT_COLOR, (*_rgb(T.ACCENT), 255)),
         (PipeEnum.ACTIVE_COLOR, (*_rgb(T.ACCENT), 255)),
     ):
@@ -413,14 +416,10 @@ def _install_back_edge_routing() -> None:
     PipeItem._clikey_back_routing = True
 
 
-#: 갈래가 둘인 노드에서 어느 쪽으로 나가는 선인지 색으로 가른다.
-#: 예전에 붙여 두었던 "참"/"거짓" 글자를 뺀 뒤로는 둘이 구분되지 않았다.
-#:
-#: 색은 둘만 쓴다 — 일이 이어지는 쪽(참 · 반복)은 초록, 비껴가는 쪽(거짓)은
-#: 회색. 완료는 따로 칠하지 않아 기본색으로 남는다.
+#: 일이 이어지는 길은 모두 초록(기본색)이고, 비껴가는 갈래만 회색이다.
+#: 예전에 붙여 두었던 "참"/"거짓" 글자를 뺀 뒤로 둘이 구분되지 않았다.
+#: 여기 없는 포트(다음 · 참 · 반복 · 완료)는 기본색을 그대로 쓴다.
 PORT_COLORS = {
-    "true": T.RUN,
-    "loop": T.RUN,
     "false": T.INK_3,
 }
 
@@ -594,10 +593,6 @@ def populate(model: Graph, ng: NodeGraph) -> Dict[str, object]:
             src.get_output(edge.port).connect_to(dst.get_input("in"), push_undo=False)
         except Exception:
             pass
-
-    for pipe in ng.viewer().all_pipes():
-        pipe.color = (*_rgb(T.INK_4), 255)
-        pipe.update()
 
     return made
 
