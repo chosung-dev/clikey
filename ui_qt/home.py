@@ -1085,6 +1085,7 @@ class HomeWindow(FramelessWindow):
 
         self.folder_btn.setToolTip(
             "폴더 목록 접기" if shown else "폴더 목록 펼치기")
+        self._refresh_empty_hint()
 
     def _toggle_sidebar(self) -> None:
         """좁을 때는 잠깐 펼치는 서랍, 넓을 때는 계속 접어두는 설정."""
@@ -1667,18 +1668,15 @@ class HomeWindow(FramelessWindow):
         lay.setSpacing(10)
         lay.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
 
-        root = library.library_root()
+        # 폴더 경로를 알려주기보다 눌러야 할 버튼을 가리킨다 — 파일을 직접
+        # 옮기지 않아도 여기서 바로 만들 수 있다.
         if self.in_folder_list:
-            title = "아직 폴더가 없습니다"
-            detail = f"{root} 아래에 폴더를 만들면 여기에 나타납니다."
+            title, detail = "아직 폴더가 없습니다", self._new_folder_hint()
         elif self.query:
             title, detail = "검색 결과가 없습니다", "다른 이름으로 찾아보세요."
-        elif self.macros:
-            title = "이 폴더는 비어 있습니다"
-            detail = f"{root / self.folder_key} 에 매크로를 넣어보세요."
         else:
             title = "아직 매크로가 없습니다"
-            detail = f"{root} 아래 폴더에 넣으면 여기에 나타납니다."
+            detail = "오른쪽 위 + 를 눌러 새 매크로를 만드세요."
 
         head = QLabel(title)
         head.setStyleSheet(f"font-size: 14px; font-weight: 500; color: {T.INK_2};")
@@ -1689,7 +1687,24 @@ class HomeWindow(FramelessWindow):
         note.setStyleSheet(f"font-size: 12px; color: {T.INK_3};")
         note.setAlignment(Qt.AlignCenter)
         lay.addWidget(note)
+        self._empty_note = note
         return box
+
+    def _new_folder_hint(self) -> str:
+        """가리키는 + 가 지금 화면에 보이는 쪽이어야 한다."""
+        if self._sidebar_floating and not self._drawer_open:
+            return "왼쪽 위 ☰ 를 열고 + 를 눌러 만드세요."
+        return "왼쪽 ‘폴더’ 옆의 + 를 눌러 만드세요."
+
+    def _refresh_empty_hint(self) -> None:
+        """사이드바가 접히고 펴지면 안내가 가리키는 곳도 따라 바뀐다."""
+        note = getattr(self, "_empty_note", None)
+        if note is None or not self.in_folder_list:
+            return
+        try:
+            note.setText(self._new_folder_hint())
+        except RuntimeError:      # 목록을 다시 그리며 지워진 라벨
+            self._empty_note = None
 
     def _window_bar(self) -> QWidget:
         bar = QWidget()

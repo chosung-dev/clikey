@@ -12,6 +12,7 @@ from ctypes import wintypes
 from typing import Optional
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QAbstractButton, QAbstractSlider, QLineEdit, QWidget
 
 WM_NCHITTEST = 0x0084
@@ -44,14 +45,6 @@ class _MSG(ctypes.Structure):
         ("time", wintypes.DWORD),
         ("pt", wintypes.POINT),
     ]
-
-
-def _loword_signed(value: int) -> int:
-    return ctypes.c_short(value & 0xFFFF).value
-
-
-def _hiword_signed(value: int) -> int:
-    return ctypes.c_short((value >> 16) & 0xFFFF).value
 
 
 class FramelessWindow(QWidget):
@@ -171,12 +164,10 @@ class FramelessWindow(QWidget):
         if event_type == b"windows_generic_MSG":
             msg = ctypes.cast(int(message), ctypes.POINTER(_MSG)).contents
             if msg.message == WM_NCHITTEST:
-                ratio = self.devicePixelRatioF() or 1.0
-                screen_pt = QPoint(
-                    int(_loword_signed(msg.lParam) / ratio),
-                    int(_hiword_signed(msg.lParam) / ratio),
-                )
-                return True, self._hit_test(self.mapFromGlobal(screen_pt))
+                # lParam 은 물리 픽셀이다. 모니터마다 배율이 다르면 화면
+                # 전체를 한 배율로 나눌 수 없어 (주 모니터 밖에서 좌표가
+                # 통째로 어긋난다) Qt 가 이미 맞춰 둔 커서 자리를 쓴다.
+                return True, self._hit_test(self.mapFromGlobal(QCursor.pos()))
 
         return super().nativeEvent(event_type, message)
 
