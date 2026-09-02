@@ -39,11 +39,15 @@ class MacroRunner(QObject):
 
     started = Signal()
     node_entered = Signal(str)
+    # 알림 노드는 실행 스레드에서 닿는다. 화면에 띄우는 일은 UI 스레드에서만
+    # 할 수 있으므로 신호로 넘긴다.
+    notify_asked = Signal(str, str, bool, float)
     finished = Signal(object)          # RunResult
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._thread: Optional[threading.Thread] = None
+        self.notify_asked.connect(self._show_toast)
         self._stop = threading.Event()
         self._hotkey = None
 
@@ -72,6 +76,7 @@ class MacroRunner(QObject):
             on_node=self.node_entered.emit,
             step_delay=step_delay,
             mouse_move_duration=mouse_move_duration,
+            notify=self.notify_asked.emit,
             max_seconds=max_seconds,
         )
 
@@ -91,6 +96,13 @@ class MacroRunner(QObject):
         self._stop.set()
 
     # ------------------------------------------------------------ 전역 정지키
+
+    @staticmethod
+    def _show_toast(title: str, message: str, sound: bool,
+                    seconds: float) -> None:
+        from ui_qt import toast
+
+        toast.show(title, message, sound, seconds)
 
     def _bind_stop_hotkey(self, key: str = STOP_HOTKEY) -> None:
         key = hotkeys.normalize(key or "")

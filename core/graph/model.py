@@ -22,6 +22,7 @@ NODE_PORTS: Dict[str, Tuple[str, ...]] = {
     "key_up": ("next",),
 
     "delay": ("next",),
+    "notify": ("next",),
 
     "image_match": ("true", "false"),
     "rgb_match": ("true", "false"),

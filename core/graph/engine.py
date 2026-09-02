@@ -77,6 +77,7 @@ class GraphExecutor:
         on_node: Optional[Callable[[str], None]] = None,
         step_delay: float = 0.0,
         mouse_move_duration: float = 0.0,
+        notify: Optional[Callable[[str, str, bool, float], None]] = None,
         max_steps: int = 1_000_000,
         max_seconds: Optional[float] = None,
     ):
@@ -85,6 +86,9 @@ class GraphExecutor:
         self.on_node = on_node
         self.step_delay = step_delay
         self.mouse_move_duration = mouse_move_duration
+        # 알림은 화면에 띄우는 일이라 UI 쪽에서 넣어준다. 엔진은 어떤 UI도
+        # 알지 못하므로 부르는 쪽이 방법을 건네는 구조로 둔다.
+        self.notify = notify
         self.max_steps = max_steps
         self.max_seconds = max_seconds
 
@@ -220,6 +224,16 @@ class GraphExecutor:
 
         self._loop_counts[node.id] = 0      # 다시 들어올 때를 위해 초기화
         return "done"
+
+    def _do_notify(self, node: Node) -> str:
+        if self.notify is not None:
+            self.notify(
+                str(node.params.get("title") or "Clikey"),
+                str(node.params.get("message") or ""),
+                node.params.get("sound", True) is not False,
+                float(node.params.get("seconds", 5) or 5),
+            )
+        return "next"
 
     # --- 대기 ---
 

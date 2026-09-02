@@ -373,6 +373,33 @@ def test_enabled_missing_in_old_files_means_on():
     old = {"version": 1, "nodes": {}, "edges": [], "entry": None, "layout": {}}
     assert Graph.from_dict(old).enabled is True
 
+def test_notify_node_calls_the_given_way():
+    """알림 노드는 부르는 쪽이 건넨 방법으로만 알린다 (엔진은 화면을 모른다)."""
+    said = []
+    g = Graph()
+    g.add_node("start", node_id="s")
+    g.add_node("notify", {"title": "제목", "message": "본문",
+                          "seconds": 3, "sound": False}, node_id="n")
+    g.add_node("stop", node_id="e")
+    g.connect("s", "n")
+    g.connect("n", "e")
+
+    GraphExecutor(g, notify=lambda *a: said.append(a)).run()
+    assert said == [("제목", "본문", False, 3.0)], said
+
+
+def test_notify_without_a_way_just_passes_through():
+    g = Graph()
+    g.add_node("start", node_id="s")
+    g.add_node("notify", {"message": "본문"}, node_id="n")
+    g.add_node("stop", node_id="e")
+    g.connect("s", "n")
+    g.connect("n", "e")
+
+    result = GraphExecutor(g).run()
+    assert result.reason == StopReason.STOP_NODE
+    assert result.error is None
+
 # ----------------------------------------------------------------
 
 def main():

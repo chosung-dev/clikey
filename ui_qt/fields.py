@@ -885,6 +885,7 @@ class RegionField(QWidget):
 # ---------------------------------------------------------------- 노드별 필드
 
 BUTTONS = [("left", "좌클릭"), ("right", "우클릭"), ("middle", "휠클릭")]
+SOUND_CHOICES = [(True, "켬"), (False, "끔")]
 
 # (파라미터 키, 라벨, 종류, 옵션, 도움말)
 Spec = Tuple[str, str, str, Dict[str, Any], str]
@@ -923,6 +924,14 @@ FIELDS: Dict[str, List[Spec]] = {
         ("seconds", "대기 시간", "unit",
          {"decimals": 2, "minimum": 0, "maximum": 3600, "unit": "초"}, ""),
     ],
+    "notify": [
+        ("title", "제목", "text", {"placeholder": "Clikey"}, ""),
+        ("message", "내용", "text", {"placeholder": "예: 매크로가 끝났습니다"}, ""),
+        ("seconds", "보이는 시간", "unit",
+         {"decimals": 0, "minimum": 1, "maximum": 60, "unit": "초"}, ""),
+        ("sound", "소리", "choice", {"options": SOUND_CHOICES},
+         "윈도우 알림 소리를 함께 낼지"),
+    ],
     "loop": [
         ("max", "반복 횟수", "number", {"minimum": 0, "maximum": 1000000},
          "몸통을 이만큼 되풀이한 뒤 완료로 나갑니다. 0 이면 중지할 때까지."),
@@ -954,6 +963,7 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     "key_down": {"key": "shift"},
     "key_up": {"key": "shift"},
     "delay": {"seconds": 0.5},
+    "notify": {"title": "Clikey", "message": "", "seconds": 5, "sound": True},
     "loop": {"max": 10},
     "rgb_match": {"pos": {"x": 0, "y": 0}, "color": [255, 255, 255], "tolerance": 0},
     "image_match": {"template": "", "region": None, "threshold": 0.9},

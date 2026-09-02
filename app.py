@@ -81,7 +81,12 @@ def main() -> int:
     UpdateChecker(window).start()
 
     print(f"[Startup] UI ready in {time.perf_counter() - _startup_time:.3f}s")
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        # 알림을 띄웠다면 알림 영역에 아이콘이 남아 있다
+        from ui_qt import toast
+        toast.close()
 
 
 if __name__ == "__main__":
