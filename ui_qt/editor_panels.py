@@ -96,9 +96,8 @@ def section_label(text: str) -> QWidget:
 PALETTE_GROUPS: List[Tuple[str, List[str]]] = [
     ("입력", ["mouse_click", "mouse_move", "mouse_down", "mouse_up",
               "key_press", "key_down", "key_up"]),
-    ("대기", ["delay"]),
     ("조건", ["rgb_match", "image_match"]),
-    ("반복", ["loop"]),
+    ("기능", ["delay", "notify", "loop"]),
 ]
 
 
