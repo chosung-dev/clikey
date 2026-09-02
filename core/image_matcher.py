@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple
 import os
 import cv2
 import numpy as np
@@ -38,17 +38,25 @@ class ImageMatcher:
         return image[:, :, :3].copy(), None
 
     @staticmethod
+    def virtual_screen() -> Tuple[int, int, int, int]:
+        """모든 모니터를 감싸는 사각형 (왼쪽, 위, 너비, 높이).
+
+        주 모니터 위나 왼쪽에 다른 모니터가 있으면 왼쪽·위가 음수다.
+        """
+        get = windll.user32.GetSystemMetrics
+        return (get(win32con.SM_XVIRTUALSCREEN), get(win32con.SM_YVIRTUALSCREEN),
+                get(win32con.SM_CXVIRTUALSCREEN), get(win32con.SM_CYVIRTUALSCREEN))
+
+    @staticmethod
     def _take_screenshot(region: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:
         hdesktop = win32gui.GetDesktopWindow()
-        left = windll.user32.GetSystemMetrics(win32con.SM_XVIRTUALSCREEN)
-        top = windll.user32.GetSystemMetrics(win32con.SM_YVIRTUALSCREEN)
-        width = windll.user32.GetSystemMetrics(win32con.SM_CXVIRTUALSCREEN)
-        height = windll.user32.GetSystemMetrics(win32con.SM_CYVIRTUALSCREEN)
+        left, top, width, height = ImageMatcher.virtual_screen()
 
         if region:
             x1, y1, x2, y2 = region
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(x2, left + width), min(y2, top + height)
+            # 화면 왼쪽·위가 음수일 수 있다. 0 으로 자르면 주 모니터 위나
+            # 왼쪽에 있는 모니터의 범위가 통째로 어긋난다.
+            x1, y1 = max(left, x1), max(top, y1)
             capture_left, capture_top = x1, y1
             capture_width, capture_height = x2 - x1, y2 - y1
         else:
@@ -118,20 +126,15 @@ class ImageMatcher:
             return None
 
         template_h, template_w = template.shape[:2]
-        offset_x, offset_y = (search_region[0], search_region[1]) if search_region else (0, 0)
+        # 찍은 그림의 왼쪽 위가 화면 좌표 어디인지. 범위를 주지 않았다면 그것은
+        # (0, 0) 이 아니라 모든 모니터를 감싸는 사각형의 왼쪽 위다.
+        if search_region:
+            offset_x, offset_y = search_region[0], search_region[1]
+        else:
+            offset_x, offset_y, _, _ = ImageMatcher.virtual_screen()
         center_x = max_loc[0] + template_w // 2 + offset_x
         center_y = max_loc[1] + template_h // 2 + offset_y
 
         del template, screenshot_bgr, result
 
         return center_x, center_y
-
-    @staticmethod
-    def create_context_data(template_path: str, center_pos: Tuple[int, int]) -> Dict[str, Any]:
-        name_without_ext = os.path.splitext(os.path.basename(template_path))[0]
-        return {
-            "name": name_without_ext,
-            "x": center_pos[0],
-            "y": center_pos[1],
-            "template_path": template_path
-        }

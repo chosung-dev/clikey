@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
+    a { color: #3A5BC7; } a:hover { color: #2C48A8; }
+    .mono { font-family: "IBM Plex Mono", Consolas, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 520px; height: 540px; background: #FFFFFF; color: #1B1E23; display: flex; flex-direction: column; overflow: hidden; font-size: 13px; border: 1px solid #D3D6DD; border-radius: 8px;">
+
+  <!-- 창 제목 -->
+  <div style="height: 42px; flex-shrink: 0; border-bottom: 1px solid #E9EAEE; display: flex; align-items: center; padding: 0 14px; gap: 8px;">
+    <span style="font-size: 13.5px; font-weight: 600;">환경 설정</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="width: 26px; height: 26px; border-radius: 5px; display: flex; align-items: center; justify-content: center;">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5A616D" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"></path></svg>
+    </span>
+  </div>
+
+  <!-- 본문 -->
+  <div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 18px 18px 0; display: flex; flex-direction: column; gap: 20px;">
+
+    <!-- 실행 -->
+    <div style="display: flex; flex-direction: column; gap: 9px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <span style="font-size: 10.5px; font-weight: 600; color: #8C939F; letter-spacing: 0.4px;">실행</span>
+        <div style="flex-grow: 1; height: 1px; background: #EDEFF3;"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px;">
+          <span style="font-size: 12.5px;">반복 횟수</span>
+          <span style="font-size: 10.5px; color: #8C939F;"><span class="mono">0</span>이면 중지할 때까지 무한 반복</span>
+        </div>
+        <div style="width: 92px; height: 32px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E3E5EA; background: #FFFFFF; display: flex; align-items: center; padding: 0 9px;">
+          <span class="mono" style="font-size: 12.5px; font-variant-numeric: tabular-nums;">0</span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px;">
+          <span style="font-size: 12.5px;">매크로 사이 간격</span>
+          <span style="font-size: 10.5px; color: #8C939F;">노드를 하나 실행한 뒤 쉬는 시간</span>
+        </div>
+        <div style="width: 92px; height: 32px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E3E5EA; background: #FFFFFF; display: flex; align-items: center; justify-content: space-between; padding: 0 9px;">
+          <span class="mono" style="font-size: 12.5px; font-variant-numeric: tabular-nums;">0.03</span>
+          <span style="font-size: 11px; color: #A9AEB9;">초</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 입력 -->
+    <div style="display: flex; flex-direction: column; gap: 9px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <span style="font-size: 10.5px; font-weight: 600; color: #8C939F; letter-spacing: 0.4px;">입력</span>
+        <div style="flex-grow: 1; height: 1px; background: #EDEFF3;"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px;">
+          <span style="font-size: 12.5px;">마우스 이동 시간</span>
+          <span style="font-size: 10.5px; color: #8C939F;"><span class="mono">0</span>이면 좌표로 즉시 이동, 값을 올리면 부드럽게 이동</span>
+        </div>
+        <div style="width: 92px; height: 32px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E3E5EA; background: #FFFFFF; display: flex; align-items: center; justify-content: space-between; padding: 0 9px;">
+          <span class="mono" style="font-size: 12.5px; font-variant-numeric: tabular-nums;">0</span>
+          <span style="font-size: 11px; color: #A9AEB9;">초</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 단축키 -->
+    <div style="display: flex; flex-direction: column; gap: 9px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <span style="font-size: 10.5px; font-weight: 600; color: #8C939F; letter-spacing: 0.4px;">단축키</span>
+        <div style="flex-grow: 1; height: 1px; background: #EDEFF3;"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="flex-grow: 1; font-size: 12.5px;">시작</span>
+        <div style="width: 104px; height: 32px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E3E5EA; background: #FFFFFF; display: flex; align-items: center; justify-content: center;">
+          <span class="mono" style="font-size: 12.5px; font-weight: 500;">F8</span>
+        </div>
+        <button style="height: 32px; padding: 0 12px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E3E5EA; background: #FFFFFF; color: #1B1E23; font-family: inherit; font-size: 12.5px; cursor: pointer;">변경</button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="flex-grow: 1; font-size: 12.5px;">중지</span>
+        <div style="width: 104px; height: 32px; flex-shrink: 0; border-radius: 6px; border: 1px solid #3A5BC7; background: #FFFFFF; box-shadow: 0 0 0 2px rgba(58,91,199,0.16); display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 12px; color: #3A5BC7;">키를 누르세요</span>
+        </div>
+        <button style="height: 32px; padding: 0 12px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E3E5EA; background: #FFFFFF; color: #8C939F; font-family: inherit; font-size: 12.5px; cursor: pointer;">취소</button>
+      </div>
+
+      <div style="display: flex; align-items: flex-start; gap: 7px; padding: 9px 10px; border-radius: 6px; background: #FBF3E3; border: 1px solid #EBD5AE;">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#C07818" stroke-width="1.5" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px;"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 5.2v3.4M8 10.8h.01"></path></svg>
+        <span style="font-size: 11.5px; color: #8A6420; line-height: 1.5;">단축키는 다른 프로그램이 켜져 있을 때도 동작합니다. 자주 쓰는 키는 피하세요.</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 하단 -->
+  <div style="height: 56px; flex-shrink: 0; border-top: 1px solid #E9EAEE; background: #FAFAFB; display: flex; align-items: center; justify-content: flex-end; padding: 0 18px; gap: 8px;">
+    <button style="height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid #E3E5EA; background: #FFFFFF; color: #1B1E23; font-family: inherit; font-size: 12.5px; cursor: pointer;">기본값으로</button>
+    <button style="height: 32px; padding: 0 18px; border-radius: 6px; border: 1px solid #3A5BC7; background: #3A5BC7; color: #FFFFFF; font-family: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;">확인</button>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

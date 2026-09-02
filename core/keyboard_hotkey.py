@@ -49,24 +49,3 @@ def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
         return keysym.lower()
 
     return mapping.get(keysym, keysym.lower())
-
-def register_hotkeys(root, ui) -> None:
-    """Register or update global hotkeys for start/stop."""
-    kb = _get_keyboard()
-    for key in ("start", "stop"):
-        handle = ui.hotkey_handles.get(key)
-        if handle is not None:
-            try:
-                kb.remove_hotkey(handle)
-            except Exception:
-                pass
-            ui.hotkey_handles[key] = None
-
-    if ui.hotkeys.get("start"):
-        ui.hotkey_handles["start"] = kb.add_hotkey(
-            ui.hotkeys["start"], lambda: root.after(0, ui.run_macros)
-        )
-    if ui.hotkeys.get("stop"):
-        ui.hotkey_handles["stop"] = kb.add_hotkey(
-            ui.hotkeys["stop"], lambda: root.after(0, ui.stop_execution)
-        )
