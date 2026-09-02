@@ -86,6 +86,8 @@ class EditorWindow(FramelessWindow):
     #: 창이 실제로 닫혔을 때. destroyed 는 C++ 쪽을 허무는 중에 오므로,
     #: 그때 홈 화면을 건드리면 이미 지워진 위젯을 만질 수 있다.
     closed = Signal()
+    #: 파일에 저장했을 때. 목록 쪽이 단축키·노드 수를 다시 읽게 한다.
+    saved = Signal()
     """매크로 하나를 여는 창."""
 
     def __init__(self, path: Path, ratio: float = 1.0, parent=None):
@@ -224,6 +226,7 @@ class EditorWindow(FramelessWindow):
 
         self._baseline = self._signature()
         self._set_dirty(False)
+        self.saved.emit()
 
     # ------------------------------------------------------------ 변경 감지
 

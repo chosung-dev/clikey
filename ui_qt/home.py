@@ -1492,6 +1492,7 @@ class HomeWindow(FramelessWindow):
 
         editor = EditorWindow(macro.path, ratio=self.ratio)
         editor.closed.connect(lambda k=key: self._editor_closed(k))
+        editor.saved.connect(self.reload)
         editor.destroyed.connect(lambda *_: self.editors.pop(key, None))
         self.editors[key] = editor
         editor.show()
@@ -1499,7 +1500,9 @@ class HomeWindow(FramelessWindow):
 
     def _editor_closed(self, key: str) -> None:
         self.editors.pop(key, None)
-        self._rebind_hotkeys()      # 맡겨두었던 키를 도로 가져온다
+        # 다시 읽어야 한다. 단축키를 고쳤어도 목록은 아직 옛 값을 들고 있어,
+        # 그대로 다시 걸면 바뀌기 전 키가 걸린다.
+        self.reload()
 
     # ------------------------------------------------------------ 앞뒤 이동
 
