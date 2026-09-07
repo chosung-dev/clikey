@@ -543,7 +543,7 @@ class HeaderRow(QFrame):
         ruled = columns is None
         if ruled:
             columns = list(zip(("shortcut", "nodes", "last", "status"),
-                               ("단축키", "노드", "마지막 실행", "상태"),
+                               ("단축키(실행/종료)", "노드", "마지막 실행", "상태"),
                                column_widths()))
         else:
             columns = [(None, text, width) for text, width in columns]
@@ -699,16 +699,11 @@ class ShortcutCell(QWidget):
             self.line1.addWidget(self.second, 0, Qt.AlignVCenter)
 
             self.chips = [self.first, self.slash, self.second]
-            self.setToolTip("실행 {} · 종료 {}".format(
-                hotkeys.display(macro.shortcut) if macro.shortcut else "없음",
-                hotkeys.display(macro.stop_shortcut) if macro.stop_shortcut
-                else "없음"))
         else:
             dash = QLabel("—")
             dash.setObjectName("CellEmpty")
             self.line1.addWidget(dash, 0, Qt.AlignVCenter)
             self.chips = [dash]
-            self.setToolTip("걸린 단축키 없음")
 
 
         # 그라데이션 바탕 + ‘수정’. 레이아웃 밖이라 키를 밀지 않는다.
@@ -724,7 +719,6 @@ class ShortcutCell(QWidget):
         self.edit_btn.setObjectName("CellEditBtn")
         self.edit_btn.setFixedHeight(22)
         self.edit_btn.setCursor(Qt.PointingHandCursor)
-        self.edit_btn.setToolTip("실행·종료 단축키 바꾸기")
         self.edit_btn.clicked.connect(self._edit)
         over.addWidget(self.edit_btn, 0, Qt.AlignVCenter)
         over.addStretch(1)          # 키 위 한가운데에 오도록
