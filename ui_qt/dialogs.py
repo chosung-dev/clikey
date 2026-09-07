@@ -173,6 +173,51 @@ def alert(parent, title: str, message: str, ok_text: str = "확인") -> None:
     dialog.exec()
 
 
+# ---------------------------------------------------------------- 단축키
+
+
+def edit_hotkeys(parent, name: str, start_key: str = "",
+                 stop_key: str = "") -> Optional[Tuple[str, str]]:
+    """실행·종료 단축키를 함께 고친다. 취소하면 None.
+
+    부르는 쪽에서 전역 단축키를 먼저 풀어둬야 한다. 이 창은 Qt 안에서만
+    막을 뿐이라, keyboard 라이브러리가 건 키는 여기서 눌러도 그대로 걸린다.
+    """
+    from ui_qt.fields import HotkeyField      # 순환 import 를 피해 여기서
+
+    dialog = BaseDialog(parent, "단축키", 430)
+    picked = {"start": start_key or "", "stop": stop_key or ""}
+
+    who = QLabel(f"‘{name}’ 을(를) 어디서든 이 키로 돌리고 멈춥니다.")
+    who.setObjectName("DialogBody")
+    who.setWordWrap(True)
+    dialog.body.addWidget(who)
+
+    for key, label in (("start", "실행"), ("stop", "종료")):
+        caption = QLabel(label)
+        caption.setObjectName("DialogLabel")
+        dialog.body.addWidget(caption)
+
+        field = HotkeyField(picked[key], lambda v, k=key: picked.__setitem__(k, v))
+        dialog.body.addWidget(field)
+
+    note = QLabel("‘변경’ 을 누른 다음 원하는 키를 누르세요. "
+                  "‘해제’ 하면 단축키 없이 둡니다.")
+    note.setObjectName("DialogHint")
+    note.setWordWrap(True)
+    dialog.body.addWidget(note)
+
+    dialog.add_buttons([
+        ("취소", "ghost", dialog.reject),
+        ("저장", "primary", dialog.accept),
+    ])
+    dialog.center_on_parent()
+
+    if dialog.exec() != QDialog.Accepted:
+        return None
+    return picked["start"], picked["stop"]
+
+
 # ---------------------------------------------------------------- 입력
 
 

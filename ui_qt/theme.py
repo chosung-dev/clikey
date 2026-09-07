@@ -62,9 +62,9 @@ ROW_H = 62
 
 # 표 컬럼 폭 (이름은 남는 공간을 차지)
 COL_SHORTCUT = 148     # 실행 / 종료 두 개가 들어간다
-COL_NODES = 96
-COL_LASTRUN = 132
-COL_STATUS = 148
+COL_NODES = 40
+COL_LASTRUN = 70       # '2026-09-07' 이 들어가는 폭
+COL_STATUS = 112       # '실행 중 · 12/50' 알약이 들어가는 폭
 COL_GAP = 16
 PAGE_PAD = 24
 
@@ -370,6 +370,33 @@ def stylesheet() -> str:
     QPushButton#TidyBtn:hover {{ border-color: {RULE_4}; background: {PANEL}; }}
     QPushButton#TidyBtn:disabled {{ color: {INK_4}; border-color: {RULE_1}; font-weight: 400; }}
 
+    /* 단축키 칸에만 도는 회색 바탕. 가운데(버튼 자리)는 짙고 양옆으로
+       투명해져, 아래 키는 흐려지며 사라지고 버튼만 또렷하게 남는다. */
+    QWidget#KeyOverlay {{
+        /* 반지름은 0.5 를 넘기지 않는다. 그보다 크면 상자 가장자리에서
+           아직 색이 남아 네모난 경계가 드러난다. */
+        background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+            stop:0    rgba(237, 239, 243, 255),
+            stop:0.34 rgba(237, 239, 243, 247),
+            stop:0.56 rgba(237, 239, 243, 214),
+            stop:0.74 rgba(237, 239, 243, 142),
+            stop:0.89 rgba(237, 239, 243, 56),
+            stop:1    rgba(237, 239, 243, 0));
+    }}
+
+    /* 열 사이 · 두 줄로 나뉜 단축키 사이에 세우는 실낱 같은 선 */
+    QFrame#ColRule {{ background: {RULE_2}; border: none; }}
+    /* 행 쪽은 머리글과 열을 맞추기 위한 자리일 뿐, 선을 긋지 않는다 */
+    QFrame#ColSpacer {{ background: transparent; border: none; }}
+    QFrame#KeyRule {{ background: {RULE_3}; border: none; }}
+
+    /* 목록 칸에서 마우스를 올렸을 때만 나오는 작은 버튼 */
+    QPushButton#CellEditBtn {{
+        background: {BG}; border: 1px solid {RULE_3}; border-radius: 5px;
+        color: {INK_2}; font-size: 11px; padding: 0 8px;
+    }}
+    QPushButton#CellEditBtn:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}
+
     QPushButton#TinyBtn {{ border: none; border-radius: 4px; background: transparent; }}
     QPushButton#TinyBtn:hover {{ background: {RULE_2}; }}
 
@@ -436,6 +463,12 @@ def stylesheet() -> str:
 
     QFrame#Row      {{ background: {BG}; border-bottom: 1px solid {RULE_1}; }}
     QFrame#Row:hover{{ background: {PANEL}; }}
+    /* 단축키 칸을 짚고 있는 동안에는 행을 물들이지 않는다 — 그 자리에는
+       칸에만 도는 회색(KeyOverlay)이 따로 뜨기 때문이다. 명시도가 같으므로
+       :hover 보다 뒤에 적어야 이긴다. */
+    QFrame#Row[keyhover="true"] {{ background: {BG}; }}
+    QFrame#FolderRow      {{ background: {BG}; border-bottom: 1px solid {RULE_1}; }}
+    QFrame#FolderRow:hover{{ background: {PANEL}; }}
     QFrame#RowOn    {{ background: #F7F9FE; border-bottom: 1px solid {RULE_1}; }}
     QFrame#HeadRow  {{ border-top: 1px solid {RULE_2}; border-bottom: 1px solid {RULE_1}; }}
 
