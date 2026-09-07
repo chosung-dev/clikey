@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from core import hotkeys, prefs, runlog
 from core.graph import Graph
+from core.graph import layout as auto_layout
 from ui_qt import dialogs, node_view, theme as T
 from ui_qt.editor_panels import BP_NARROW_PANELS, DRAG_PREFIX, Inspector, Palette
 from ui_qt.fields import DEFAULTS
@@ -190,6 +191,7 @@ class EditorWindow(FramelessWindow):
         QShortcut(QKeySequence("F"), self, self.fit_view)
         QShortcut(QKeySequence("Ctrl+A"), self, self.ng.select_all)
         QShortcut(QKeySequence("Ctrl+D"), self, self.duplicate_selected)
+        QShortcut(QKeySequence("Ctrl+L"), self, self.tidy_layout)
         QShortcut(QKeySequence("Ctrl+F"), self, self.palette.focus_search)
         QShortcut(QKeySequence("Escape"), self, self.end_pick_coord)
         # Windows 에서 QKeySequence.Redo 는 Ctrl+Y 다. 같은 키를 두 번 걸면
@@ -400,6 +402,26 @@ class EditorWindow(FramelessWindow):
         center = viewer.mapToScene(viewer.viewport().rect().center())
         step = (len(self.made) % 6) * 28          # 연속 추가 시 겹치지 않게
         return (center.x() - 80 + step, center.y() - 30 + step), None
+
+    def tidy_layout(self) -> None:
+        """노드를 흐름대로 다시 앉힌다.
+
+        자리는 캔버스가 진실이므로 모델을 먼저 맞춘 뒤 계산하고, 결과를
+        다시 캔버스에 돌려준다. 되돌리기 한 번으로 원래대로 돌아간다.
+        """
+        if not self.made:
+            return
+
+        self.sync_from_canvas()
+        placed = auto_layout.arrange(self.model, node_view.read_sizes(self.made))
+        if not node_view.set_positions(self.made, placed):
+            self.fit_view()               # 이미 정렬돼 있어도 눌린 티는 나게
+            return
+
+        self.model.layout = node_view.read_layout(self.made)
+        self.record_history()
+        self._check_dirty()
+        self.fit_view()
 
     def fit_view(self) -> None:
         """전체가 보이도록 화면을 맞춘다. 넓은 그래프에서 길을 잃지 않게.
@@ -809,6 +831,16 @@ class EditorWindow(FramelessWindow):
 
         lay.addStretch(1)
 
+        self.tidy_btn = StateIconButton(
+            "  정렬", "tidy", self.ratio,
+            normal=T.INK_2, hover=T.INK, disabled=T.INK_4, size=T.ICON_SM,
+        )
+        self.tidy_btn.setObjectName("TidyBtn")
+        self.tidy_btn.setFixedHeight(32)
+        self.tidy_btn.setToolTip("노드를 흐름대로 자동 정렬 (Ctrl+L)")
+        self.tidy_btn.clicked.connect(self.tidy_layout)
+        lay.addWidget(self.tidy_btn)
+
         # 실행 / 중지
         self.run_btn = StateIconButton(
             "  실행", "play", self.ratio,
@@ -867,7 +899,7 @@ class EditorWindow(FramelessWindow):
         lay.addWidget(self.status)
         lay.addStretch(1)
 
-        hint = QLabel("F 전체 보기 · Ctrl+Z 되돌리기 · "
+        hint = QLabel("F 전체 보기 · Ctrl+L 정렬 · Ctrl+Z 되돌리기 · "
                       "Ctrl+D 복제 · Del 삭제 · Ctrl+S 저장")
         hint.setObjectName("StatusBar")
         lay.addWidget(hint)
