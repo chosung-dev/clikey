@@ -398,6 +398,31 @@ def set_enabled(path: Path, enabled: bool) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def set_hotkeys(path: Path, start_key: str, stop_key: str) -> None:
+    """실행·종료 단축키만 바꾼다. 나머지 내용은 그대로 둔다.
+
+    단축키는 시작·종료 노드의 `hotkey` 에 적혀 있다. 종류마다 처음 하나에만
+    적는 것은 `read_summary` 가 읽는 규칙과 같다 — 읽은 자리에 되돌려 써야
+    목록에 보이던 값과 어긋나지 않는다.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not isinstance(data.get("nodes"), dict):
+        raise ValueError("매크로 파일 형식이 아닙니다.")
+
+    wanted = {"start": str(start_key or ""), "stop": str(stop_key or "")}
+    for node in data["nodes"].values():
+        if isinstance(node, dict) and node.get("type") in wanted:
+            node["hotkey"] = wanted.pop(node["type"])
+        if not wanted:
+            break
+    if len(wanted) == 2:
+        raise ValueError("시작·종료 노드가 없어 단축키를 걸 수 없습니다.")
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 def delete_macro(path: Path, root: Optional[Path] = None) -> None:
     """매크로 파일을 지운다. 되돌릴 수 없으므로 호출 전에 확인받을 것."""
     root = (root or library_root()).resolve()
