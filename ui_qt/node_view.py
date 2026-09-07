@@ -78,6 +78,10 @@ INK2_RGB = _rgb(T.INK_2)
 SNAP_DISTANCE = 8        # 이만큼 가까우면 달라붙는다 (씬 좌표)
 GUIDE_REACH = 4000       # 안내선을 이 정도 길이로 그린다
 
+#: 자리를 코드로 옮기는 동안에는 달라붙기를 멈춘다. 자동 정렬이 계산한
+#: 좌표가 이웃에 이끌려 몇 픽셀씩 밀리면 애써 맞춘 줄이 어긋난다.
+_snapping = True
+
 
 class AlignGuides:
     """끌고 있는 노드가 다른 노드와 맞았을 때 보여주는 안내선.
@@ -171,7 +175,8 @@ class ClikeyNodeItem(NodeItem):
     # ------------------------------------------------------------ 정렬 스냅
 
     def itemChange(self, change, value):
-        if change == QtWidgets.QGraphicsItem.ItemPositionChange and self.scene():
+        if (change == QtWidgets.QGraphicsItem.ItemPositionChange
+                and _snapping and self.scene()):
             value = self._align(value)
         return super().itemChange(change, value)
 
@@ -884,6 +889,37 @@ def refresh_card(ui, model_node) -> None:
     ui.view.title = model_node.name or LABEL.get(model_node.type, model_node.type)
     ui.view.detail = summarize(model_node)
     ui.view.set_preview(preview_for(model_node))
+
+
+def read_sizes(made: Dict[str, object]) -> Dict[str, tuple]:
+    """카드의 실제 크기. 이미지 검색 노드는 미리보기만큼 키가 크다."""
+    sizes = {}
+    for node_id, ui in made.items():
+        try:
+            rect = ui.view.boundingRect()
+            sizes[node_id] = (float(rect.width()), float(rect.height()))
+        except Exception:
+            pass
+    return sizes
+
+
+def set_positions(made: Dict[str, object], placed: Dict[str, tuple]) -> bool:
+    """계산한 자리로 카드를 옮긴다. 하나라도 움직였으면 True."""
+    global _snapping
+    moved = False
+    _snapping = False                 # 계산한 좌표가 이웃에 끌려가지 않게
+    try:
+        for node_id, (x, y) in placed.items():
+            ui = made.get(node_id)
+            if ui is None:
+                continue
+            now = ui.pos()
+            if round(now[0]) != x or round(now[1]) != y:
+                moved = True
+            ui.set_pos(float(x), float(y))
+    finally:
+        _snapping = True
+    return moved
 
 
 def read_layout(made: Dict[str, object]) -> Dict[str, list]:

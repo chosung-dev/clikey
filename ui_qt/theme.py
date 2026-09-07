@@ -163,6 +163,12 @@ PATHS = {
         '<path d="M4.4 1.6v10h10"/><path d="M1.6 4.4h10v10"/>'
     ),
     "arrow_right": '<path d="M3 8h9M8.6 4.6L12 8l-3.4 3.4"/>',
+    "tidy": (
+        '<rect x="6" y="1.8" width="4" height="3.2" rx="1"/>'
+        '<rect x="1.6" y="11" width="4" height="3.2" rx="1"/>'
+        '<rect x="10.4" y="11" width="4" height="3.2" rx="1"/>'
+        '<path d="M8 5v2.6M3.6 7.6h8.8M3.6 7.6V11M12.4 7.6V11"/>'
+    ),
     # 창 조작
     "maximize": '<rect x="3.2" y="3.2" width="9.6" height="9.6" rx="1.2"/>',
     "restore": (
@@ -355,6 +361,14 @@ def stylesheet() -> str:
         font-size: 12.5px; padding: 0 14px;
     }}
     QPushButton#DlgGhost:hover {{ border-color: {RULE_4}; background: {PANEL}; }}
+
+    /* 자동 정렬 — 실행 버튼 옆에서 튀지 않게 테두리만 있는 모양 */
+    QPushButton#TidyBtn {{
+        background: {BG}; border: 1px solid {RULE_3}; border-radius: {RADIUS_CTRL}px;
+        color: {INK_2}; font-size: 12px; font-weight: 500; padding: 0 12px;
+    }}
+    QPushButton#TidyBtn:hover {{ border-color: {RULE_4}; background: {PANEL}; }}
+    QPushButton#TidyBtn:disabled {{ color: {INK_4}; border-color: {RULE_1}; font-weight: 400; }}
 
     QPushButton#TinyBtn {{ border: none; border-radius: 4px; background: transparent; }}
     QPushButton#TinyBtn:hover {{ background: {RULE_2}; }}
