@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QEvent, QRect, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtGui import QCursor, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -593,8 +593,79 @@ class FolderRow(QFrame):
             self.on_menu(self.folder.name, event.globalPos())
 
 
+class ShortcutCell(QWidget):
+    """목록의 단축키 칸. 마우스를 올리면 ‘수정’ 이 나온다.
+
+    자식 위젯에 마우스가 들어가도 Qt 는 부모에 Leave 를 보낸다. 그대로 두면
+    버튼을 누르러 가는 사이에 버튼이 사라지므로, 나갈 때 커서가 정말 칸 밖인지
+    확인한다.
+    """
+
+    def __init__(self, macro: Macro, dimmed: bool, on_edit=None):
+        super().__init__()
+        self.setFixedWidth(T.COL_SHORTCUT)
+        self.on_edit = on_edit
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        # 단축키 — 실행과 종료를 함께 보여준다
+        if macro.shortcut or macro.stop_shortcut:
+            for i, key in enumerate((macro.shortcut, macro.stop_shortcut)):
+                if i:
+                    slash = QLabel("/")
+                    slash.setObjectName("CellEmpty")
+                    lay.addWidget(slash, 0, Qt.AlignVCenter)
+                kbd = QLabel(hotkeys.display(key))
+                kbd.setObjectName(("KbdMuted" if dimmed else "Kbd") if key
+                                  else "CellEmpty")
+                kbd.setFixedHeight(22)
+                kbd.setAlignment(Qt.AlignCenter)
+                lay.addWidget(kbd, 0, Qt.AlignVCenter)
+            # 칸이 좁아 Ctrl+Shift+F12 같은 긴 키는 잘려 보인다. 마우스를
+            # 올리면 온전한 값이 뜨게 해 둔다.
+            self.setToolTip("실행 {} · 종료 {}".format(
+                hotkeys.display(macro.shortcut) if macro.shortcut else "없음",
+                hotkeys.display(macro.stop_shortcut) if macro.stop_shortcut
+                else "없음"))
+        else:
+            dash = QLabel("—")
+            dash.setObjectName("CellEmpty")
+            lay.addWidget(dash, 0, Qt.AlignVCenter)
+            self.setToolTip("걸린 단축키 없음")
+
+        lay.addStretch(1)
+
+        # 자리를 늘 차지하고 보였다 숨었다만 하면 칸이 좁아 키가 잘린다.
+        # 숨을 때 자리도 함께 비우고, 나올 때 스트레치가 밀리며 오른쪽에 선다.
+        self.edit_btn = QPushButton("수정")
+        self.edit_btn.setObjectName("CellEditBtn")
+        self.edit_btn.setFixedHeight(22)
+        self.edit_btn.setCursor(Qt.PointingHandCursor)
+        self.edit_btn.setToolTip("실행·종료 단축키 바꾸기")
+        self.edit_btn.clicked.connect(self._edit)
+        self.edit_btn.hide()
+        lay.addWidget(self.edit_btn, 0, Qt.AlignVCenter)
+
+    def _edit(self) -> None:
+        if self.on_edit:
+            self.on_edit()
+
+    def enterEvent(self, event):
+        if self.on_edit is not None:
+            self.edit_btn.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if not self.rect().contains(self.mapFromGlobal(QCursor.pos())):
+            self.edit_btn.hide()
+        super().leaveEvent(event)
+
+
 class MacroRow(QFrame):
-    def __init__(self, macro: Macro, ratio: float, on_open=None, on_menu=None):
+    def __init__(self, macro: Macro, ratio: float, on_open=None, on_menu=None,
+                 on_edit_keys=None):
         super().__init__()
         running = macro.status == RUNNING
         dimmed = macro.status == DISABLED
@@ -636,29 +707,12 @@ class MacroRow(QFrame):
         holder.setLayout(left)
         lay.addWidget(holder, 1)
 
-        # 단축키 — 실행과 종료를 함께 보여준다
-        if macro.shortcut or macro.stop_shortcut:
-            keys = QWidget()
-            klay = QHBoxLayout(keys)
-            klay.setContentsMargins(0, 0, 0, 0)
-            klay.setSpacing(4)
-            for i, key in enumerate((macro.shortcut, macro.stop_shortcut)):
-                if i:
-                    slash = QLabel("/")
-                    slash.setObjectName("CellEmpty")
-                    klay.addWidget(slash)
-                kbd = QLabel(hotkeys.display(key))
-                kbd.setObjectName(("KbdMuted" if dimmed else "Kbd") if key
-                                  else "CellEmpty")
-                kbd.setFixedHeight(22)
-                kbd.setAlignment(Qt.AlignCenter)
-                klay.addWidget(kbd)
-            klay.addStretch(1)
-            cell = self._cell(keys, T.COL_SHORTCUT)
-        else:
-            dash = QLabel("—")
-            dash.setObjectName("CellEmpty")
-            cell = self._cell(dash, T.COL_SHORTCUT)
+        # 단축키 — 여기서 바로 고칠 수 있다 (파일이 깨졌으면 손대지 않는다)
+        cell = ShortcutCell(
+            macro, dimmed,
+            on_edit=(lambda: on_edit_keys(macro))
+            if on_edit_keys and not macro.broken else None,
+        )
         self.cells = {"shortcut": cell}
         lay.addWidget(cell)
 
@@ -1004,7 +1058,8 @@ class HomeWindow(FramelessWindow):
         try:
             for macro in macros:
                 row = MacroRow(macro, self.ratio,
-                               on_open=self.open_macro, on_menu=self.macro_menu)
+                               on_open=self.open_macro, on_menu=self.macro_menu,
+                               on_edit_keys=self.edit_hotkeys)
                 row.apply_columns(self._columns)
                 self.rows_box.addWidget(row)
         finally:
@@ -1442,6 +1497,8 @@ class HomeWindow(FramelessWindow):
         menu.addAction("열기", lambda: self.open_macro(macro))
         menu.addSeparator()
         menu.addAction("이름 바꾸기", lambda: self.rename_macro(macro))
+        keys = menu.addAction("단축키 바꾸기", lambda: self.edit_hotkeys(macro))
+        keys.setEnabled(not macro.broken)
         menu.addAction("복제", lambda: self.duplicate_macro(macro))
 
         others = [f for f in library.folder_names() if f != macro.folder]
@@ -1461,6 +1518,36 @@ class HomeWindow(FramelessWindow):
         menu.addSeparator()
         menu.addAction("삭제", lambda: self.delete_macro(macro))
         menu.exec(at)
+
+    def edit_hotkeys(self, macro: Macro) -> None:
+        """목록에서 바로 실행·종료 단축키를 고친다.
+
+        편집기를 열어 시작·종료 노드를 찾아 들어가지 않아도 되게 — 목록에
+        이미 키가 보이는 자리에서 그대로 고친다.
+        """
+        if macro.broken or not macro.path:
+            return
+        if self._editor_open_for(macro):
+            return
+
+        # 키를 고르는 동안에는 전역 단축키를 풀어둔다. 이 창은 Qt 안에서만
+        # 막으므로, 걸어둔 채로 F8 을 누르면 매크로가 그대로 돌아버린다.
+        self.binder.clear()
+        try:
+            picked = dialogs.edit_hotkeys(
+                self, macro.name, macro.shortcut, macro.stop_shortcut)
+        finally:
+            self._rebind_hotkeys()
+
+        if picked is None or picked == (macro.shortcut, macro.stop_shortcut):
+            return
+
+        try:
+            library.set_hotkeys(macro.path, *picked)
+        except (OSError, ValueError) as exc:      # JSONDecodeError 도 ValueError
+            dialogs.alert(self, "바꿀 수 없음", f"{macro.name}\n\n{exc}")
+            return
+        self.reload()
 
     def set_macro_enabled(self, macro: Macro, enabled: bool) -> None:
         """매크로를 잠시 쉬게 한다. 꺼두면 단축키가 풀리고 행이 흐려진다."""

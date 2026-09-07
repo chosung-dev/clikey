@@ -370,6 +370,13 @@ def stylesheet() -> str:
     QPushButton#TidyBtn:hover {{ border-color: {RULE_4}; background: {PANEL}; }}
     QPushButton#TidyBtn:disabled {{ color: {INK_4}; border-color: {RULE_1}; font-weight: 400; }}
 
+    /* 목록 칸에서 마우스를 올렸을 때만 나오는 작은 버튼 */
+    QPushButton#CellEditBtn {{
+        background: {BG}; border: 1px solid {RULE_3}; border-radius: 5px;
+        color: {INK_2}; font-size: 11px; padding: 0 8px;
+    }}
+    QPushButton#CellEditBtn:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}
+
     QPushButton#TinyBtn {{ border: none; border-radius: 4px; background: transparent; }}
     QPushButton#TinyBtn:hover {{ background: {RULE_2}; }}
 
