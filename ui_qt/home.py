@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QEvent, QRect, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QCursor, QGuiApplication, QIcon
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -629,33 +629,20 @@ class FolderRow(QFrame):
 
 HEAD_RULE_H = 12         # 머리글 사이 구분선 길이
 ROW_RULE_H = 28          # 행 사이 구분선 길이
-KEY_OVERLAY_PAD = 26     # 키 둘레로 두는 여백 — 그라데이션이 퍼질 자리
 
 
 class ShortcutCell(QWidget):
-    """목록의 단축키 칸. 마우스를 올리면 ‘수정’ 이 키 위에 겹쳐 뜬다.
+    """목록의 단축키 칸. 실행 키와 종료 키를 함께 보여준다.
 
-    버튼을 레이아웃에 넣으면 나올 때마다 키가 그만큼 눌려 잘린다. 그래서
-    레이아웃 밖 자식으로 두고, 키가 실제로 차지한 자리에 맞춰 그 위에
-    올린다. 칸 오른쪽 끝에 붙이면 F8/F9 처럼 짧은 키에서는 키 옆 빈자리에
-    떠서 겹치지 않는다.
-
-    그냥 덮으면 글자끼리 부딪혀 읽기 나쁘다. 가운데가 불투명하고 양옆으로
-    투명해지는 그라데이션을 깔아, 아래 키는 흐려지고 버튼만 또렷하게 뜬다.
-
-    자식 위젯에 마우스가 들어가도 Qt 는 부모에 Leave 를 보낸다. 그대로 두면
-    버튼을 누르러 가는 사이에 버튼이 사라지므로, 나갈 때 커서가 정말 칸 밖인지
-    확인한다.
+    고치는 길은 오른쪽 버튼 메뉴 하나뿐이다. 지나가다 마우스가 스치기만 해도
+    바뀌는 자리를 두면 목록을 훑는 동안 칸이 계속 들썩인다.
     """
 
-    def __init__(self, macro: Macro, dimmed: bool, on_edit=None, on_hover=None):
+    def __init__(self, macro: Macro, dimmed: bool):
         super().__init__()
         self.setFixedWidth(T.COL_SHORTCUT)
-        self.on_edit = on_edit
-        self.on_hover = on_hover
         self.second = None          # 종료 키 — 자리가 좁으면 아랫줄로 내린다
         self.slash = None
-        self.chips = []             # 겹칠 자리를 재려면 키들을 들고 있어야 한다
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -698,31 +685,10 @@ class ShortcutCell(QWidget):
             self.second = self._kbd(macro.stop_shortcut, dimmed)
             self.line1.addWidget(self.second, 0, Qt.AlignVCenter)
 
-            self.chips = [self.first, self.slash, self.second]
         else:
             dash = QLabel("—")
             dash.setObjectName("CellEmpty")
             self.line1.addWidget(dash, 0, Qt.AlignVCenter)
-            self.chips = [dash]
-
-
-        # 그라데이션 바탕 + ‘수정’. 레이아웃 밖이라 키를 밀지 않는다.
-        self.overlay = QWidget(self)
-        self.overlay.setObjectName("KeyOverlay")
-        # QSS 배경은 이 속성이 있어야 맨 QWidget 에도 칠해진다
-        self.overlay.setAttribute(Qt.WA_StyledBackground, True)
-        over = QHBoxLayout(self.overlay)
-        over.setContentsMargins(0, 0, 0, 0)
-        over.addStretch(1)
-
-        self.edit_btn = QPushButton("단축키 변경")
-        self.edit_btn.setObjectName("CellEditBtn")
-        self.edit_btn.setFixedHeight(22)
-        self.edit_btn.setCursor(Qt.PointingHandCursor)
-        self.edit_btn.clicked.connect(self._edit)
-        over.addWidget(self.edit_btn, 0, Qt.AlignVCenter)
-        over.addStretch(1)          # 키 위 한가운데에 오도록
-        self.overlay.hide()
 
     @staticmethod
     def _kbd(key: str, dimmed: bool) -> QLabel:
@@ -767,77 +733,13 @@ class ShortcutCell(QWidget):
     def _widgets(layout) -> list:
         return [layout.itemAt(i).widget() for i in range(layout.count())]
 
-    def _place_overlay(self) -> None:
-        """키가 놓인 자리에 겹쳐 앉힌다.
-
-        키 폭은 줄 나눔에 따라 행마다 다르므로 자리를 잡을 때마다 다시 잰다.
-        키가 버튼보다 좁으면(‘—’ 하나뿐일 때) 버튼이 삐져나오지 않게 넓힌다.
-        """
-        spots = [chip.geometry() for chip in self.chips if chip.isVisible()]
-        if spots:
-            left = min(spot.left() for spot in spots)
-            right = max(spot.right() + 1 for spot in spots)
-        else:
-            left, right = 0, self.width()
-
-        # 키보다 넉넉히 넓게 잡아야 흐려지는 끝자락이 키 밖으로 빠진다
-        least = self.edit_btn.sizeHint().width() + KEY_OVERLAY_PAD * 2
-        width = min(max(right - left + KEY_OVERLAY_PAD * 2, least), self.width())
-        x = round((left + right) / 2 - width / 2)
-        x = max(0, min(x, self.width() - width))
-        self.overlay.setGeometry(x, 0, width, self.height())
-
     def showEvent(self, event):
         super().showEvent(event)
         self._reflow()
-        self.layout().activate()      # 키 자리가 정해져야 폭을 잴 수 있다
-        self._place_overlay()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._place_overlay()
-
-    # ------------------------------------------------------------ 마우스
-
-    def _set_hovered(self, on: bool) -> None:
-        on = on and self.on_edit is not None
-        if on:
-            self._place_overlay()
-            self.overlay.show()
-            self.overlay.raise_()
-        else:
-            self.overlay.hide()
-        if self.on_hover:
-            self.on_hover(on)
-
-    def _under_cursor(self) -> bool:
-        return self.rect().contains(self.mapFromGlobal(QCursor.pos()))
-
-    def _edit(self) -> None:
-        if not self.on_edit:
-            return
-        self.on_edit()
-        # 대화상자가 떠 있는 동안 마우스가 빠져나가면 Leave 가 오지 않아
-        # 버튼이 그대로 떠 있는다. 닫힌 뒤에 커서 자리를 직접 확인한다.
-        # (저장했으면 목록을 다시 그려 이 칸은 이미 없어졌을 수 있다.)
-        try:
-            self._set_hovered(self._under_cursor())
-        except RuntimeError:
-            pass
-
-    def enterEvent(self, event):
-        self._set_hovered(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        if not self._under_cursor():
-            self._set_hovered(False)
-        super().leaveEvent(event)
 
 
 class MacroRow(QFrame):
-    def __init__(self, macro: Macro, ratio: float, on_open=None, on_menu=None,
-                 on_edit_keys=None):
+    def __init__(self, macro: Macro, ratio: float, on_open=None, on_menu=None):
         super().__init__()
         running = macro.status == RUNNING
         dimmed = macro.status == DISABLED
@@ -890,13 +792,8 @@ class MacroRow(QFrame):
             self.cells[key] = widget
             lay.addWidget(widget)
 
-        # 단축키 — 여기서 바로 고칠 수 있다 (파일이 깨졌으면 손대지 않는다)
-        column("shortcut", ShortcutCell(
-            macro, dimmed,
-            on_edit=(lambda: on_edit_keys(macro))
-            if on_edit_keys and not macro.broken else None,
-            on_hover=self.mute_hover,
-        ))
+        # 단축키 — 고치는 길은 오른쪽 버튼 메뉴에 있다
+        column("shortcut", ShortcutCell(macro, dimmed))
 
         # 노드 수
         nodes = QLabel(str(macro.nodes))
@@ -928,18 +825,6 @@ class MacroRow(QFrame):
             widget.setVisible(key in shown)
         for key, rule in self.rules.items():
             rule.setVisible(key in shown)
-
-    def mute_hover(self, muted: bool) -> None:
-        """단축키 칸을 짚는 동안 행 전체가 물드는 것을 잠시 멈춘다.
-
-        그 자리에는 칸에만 도는 회색이 따로 뜨므로, 둘이 겹치면 어디를
-        가리키는지 알아보기 어렵다.
-        """
-        if self.property("keyhover") == muted:
-            return
-        self.setProperty("keyhover", muted)
-        self.style().unpolish(self)
-        self.style().polish(self)
 
     def set_running(self, running: bool) -> None:
         """실행 상태에 맞춰 행 모습을 바꾼다."""
@@ -1249,8 +1134,8 @@ class HomeWindow(FramelessWindow):
         try:
             for macro in macros:
                 row = MacroRow(macro, self.ratio,
-                               on_open=self.open_macro, on_menu=self.macro_menu,
-                               on_edit_keys=self.edit_hotkeys)
+                               on_open=self.open_macro,
+                               on_menu=self.macro_menu)
                 row.apply_columns(self._columns)
                 self.rows_box.addWidget(row)
         finally:
