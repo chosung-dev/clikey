@@ -41,6 +41,7 @@ CHIP_BG = {
     "wait": "#F1F2F5",
     "condition": "#FBF3E3",
     "loop": "#F1ECFA",
+    "ai": "#E7F3F1",
     "flow": "#F7E7E6",
 }
 
@@ -97,8 +98,19 @@ PALETTE_GROUPS: List[Tuple[str, List[str]]] = [
     ("입력", ["mouse_click", "mouse_move", "mouse_down", "mouse_up",
               "key_press", "key_down", "key_up"]),
     ("조건", ["rgb_match", "image_match"]),
+    ("AI", ["ask", "ai_point"]),
     ("기능", ["delay", "notify", "loop"]),
 ]
+
+#: Claude MCP 연동을 켰을 때만 보여줄 구역. 판단해 줄 상대가 없으면 놓아봐야
+#: 실행할 수 없는 매크로가 되므로, 쓸 수 없는 노드를 미리 내놓지 않는다.
+MCP_ONLY_GROUPS = {"AI"}
+
+
+def mcp_ready() -> bool:
+    from core import prefs
+
+    return bool(prefs.load().get("mcp_enabled"))
 
 
 #: 팔레트에서 캔버스로 끌 때 실어 보내는 표시. 뷰어가 text/plain 을 받아준다.
@@ -220,8 +232,10 @@ class Palette(QWidget):
         self.setObjectName("Panel")
         self.setFixedWidth(PALETTE_W)
 
-        #: [(구역 제목, [그 아래 항목])] — 검색할 때 함께 숨긴다
-        self._sections: List[Tuple[QWidget, List[PaletteItem]]] = []
+        #: [(구역 제목, [그 아래 항목], 연동이 있어야 하는지)]
+        #: — 검색할 때, 그리고 연동이 꺼져 있을 때 함께 숨긴다
+        self._sections: List[Tuple[QWidget, List[PaletteItem], bool]] = []
+        self._mcp = mcp_ready()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -256,7 +270,7 @@ class Palette(QWidget):
                 item = PaletteItem(node_type, ratio, on_add=self.on_add)
                 bodylay.addWidget(item)
                 items.append(item)
-            self._sections.append((head, items))
+            self._sections.append((head, items, title in MCP_ONLY_GROUPS))
 
         self.empty = QLabel("맞는 노드가 없습니다")
         self.empty.setAlignment(Qt.AlignCenter)
@@ -273,6 +287,8 @@ class Palette(QWidget):
         area.setWidget(body)
         root.addWidget(area, 1)
 
+        self._filter()          # 연동이 꺼져 있으면 AI 구역은 처음부터 감춘다
+
     def set_narrow(self, narrow: bool) -> None:
         self.setFixedWidth(PALETTE_W_NARROW if narrow else PALETTE_W)
 
@@ -288,9 +304,21 @@ class Palette(QWidget):
             return True
         return super().eventFilter(obj, event)
 
+    def refresh_gates(self) -> None:
+        """설정에서 연동을 켜고 끈 것을 뒤늦게 따라잡는다.
+
+        설정은 대시보드에서 여는데 편집기는 따로 떠 있다. 창을 다시 잡을 때
+        확인해야 껐다 켠 것이 반영된다.
+        """
+        now = mcp_ready()
+        if now == self._mcp:
+            return
+        self._mcp = now
+        self._filter(self.search.text())
+
     def visible_types(self) -> List[str]:
         return [item.node_type
-                for _, items in self._sections for item in items
+                for _, items, _ in self._sections for item in items
                 if not item.isHidden()]
 
     def _filter(self, text: str = "") -> None:
@@ -298,10 +326,11 @@ class Palette(QWidget):
         # 디스크를 다시 읽지 않으므로 입력을 늦출 이유도 없다.
         needle = text.strip().lower()
         found = False
-        for head, items in self._sections:
+        for head, items, needs_mcp in self._sections:
+            gated = needs_mcp and not self._mcp
             shown = 0
             for item in items:
-                ok = matches(item.node_type, needle)
+                ok = not gated and matches(item.node_type, needle)
                 item.setVisible(ok)
                 shown += ok
             head.setVisible(shown > 0)
@@ -339,7 +368,7 @@ def field(label_text: str, value_widget: QWidget, hint: str = "") -> QWidget:
 
 def port_glyph(port: str, ratio: float) -> QWidget:
     """있음/없음을 캔버스와 같은 기호로."""
-    truthy = port in ("true", "loop")
+    truthy = port in ("true", "loop", "찾음")
     color = T.RUN if truthy else T.INK_4
     glyph = "check" if truthy else "cross"
 
@@ -559,7 +588,7 @@ class Inspector(QWidget):
             if len(node.ports) > 1:
                 rl.addWidget(port_glyph(port, self.ratio))
                 name = QLabel(PORT_NAME.get(port, port))
-                truthy = port in ("true", "loop")
+                truthy = port in ("true", "loop", "찾음")
                 name.setStyleSheet(
                     f"font-size: 11px; font-weight: 500;"
                     f"color: {T.RUN if truthy else T.INK_3};"

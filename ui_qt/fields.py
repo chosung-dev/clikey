@@ -822,9 +822,12 @@ class RegionField(QWidget):
     범위를 좁히면 그만큼 빨라진다 — 반복 안에서 이미지를 찾을 때 차이가 크다.
     """
 
-    def __init__(self, region, on_change: Setter):
+    def __init__(self, region, on_change: Setter, budget: bool = False):
         super().__init__()
         self.on_change = on_change
+        #: 그림이 줄어들지 않는 크기 안에서만 고르게 할지. 짚을 자리를 찾는
+        #: 노드는 그림이 줄면 글씨가 뭉개져 짚은 곳도 흔들린다.
+        self.budget = budget
         self.region = list(region) if isinstance(region, (list, tuple))             and len(region) == 4 else None
 
         root = QVBoxLayout(self)
@@ -857,14 +860,21 @@ class RegionField(QWidget):
 
     def _refresh(self) -> None:
         if self.region is None:
-            self.label.setText("화면 전체")
-            self.label.setStyleSheet(f"font-size: 12px; color: {T.INK_4};")
+            self.label.setText("범위를 지정해주세요" if self.budget else "화면 전체")
+            tint = T.DANGER if self.budget else T.INK_4
+            self.label.setStyleSheet(f"font-size: 12px; color: {tint};")
         else:
             x1, y1, x2, y2 = self.region
-            self.label.setText(f"{x1}, {y1}  ·  {x2 - x1} × {y2 - y1}")
+            text = f"{x1}, {y1}  ·  {x2 - x1} × {y2 - y1}"
+            if self.budget:
+                from core.graph.model import vision_tokens
+
+                text += f"  ·  {vision_tokens(x2 - x1, y2 - y1)}토큰"
+            self.label.setText(text)
             self.label.setStyleSheet(
                 f"font-family: '{T.mono_stack()}'; font-size: 12px;")
-        self.clear_btn.setEnabled(self.region is not None)
+        # 범위가 있어야만 도는 노드에서는 '화면 전체로' 가 곧 고장이다
+        self.clear_btn.setEnabled(self.region is not None and not self.budget)
 
     def _pick(self) -> None:
         from ui_qt.picker import pick_region
@@ -872,6 +882,18 @@ class RegionField(QWidget):
         picked = pick_region(self.window())
         if picked is None:
             return
+
+        # 한계를 넘는 범위는 아예 받지 않는다. 받아두고 나중에 실행할 때
+        # 막으면, 어디가 잘못됐는지 그때 가서야 알게 된다.
+        if self.budget:
+            from core.graph.model import region_problem
+
+            trouble = region_problem(list(picked))
+            if trouble:
+                from ui_qt import dialogs
+
+                dialogs.alert(self.window(), "범위가 너무 넓습니다", trouble)
+                return
         self.region = list(picked)
         self._refresh()
         self.on_change(list(self.region))
@@ -880,6 +902,127 @@ class RegionField(QWidget):
         self.region = None
         self._refresh()
         self.on_change(None)
+
+
+class ListField(QWidget):
+    """개수가 정해지지 않은 문자열 목록. 판단 노드의 선택지에 쓴다.
+
+    선택지 하나가 노드의 출력 포트 하나가 되므로, 지우면 거기 걸려 있던
+    흐름도 함께 끊긴다. 그래서 지우는 단추는 마지막 하나만 남았을 때 잠근다
+    — 선택지가 없는 판단 노드는 나갈 곳이 없어 반드시 멈춘다.
+    """
+
+    def __init__(self, values, on_change: Setter, placeholder: str = "",
+                 minimum: int = 2, maximum: int = 10):
+        super().__init__()
+        self.on_change = on_change
+        self.placeholder = placeholder
+        self.minimum = max(1, minimum)
+        self.maximum = max(self.minimum, maximum)
+
+        self.values: List[str] = [str(v) for v in (values or [])] or [""]
+        del self.values[self.maximum:]
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+
+        self.rows = QVBoxLayout()
+        self.rows.setContentsMargins(0, 0, 0, 0)
+        self.rows.setSpacing(6)
+        root.addLayout(self.rows)
+
+        self.add_btn = QPushButton("선택지 추가")
+        self.add_btn.setObjectName("GhostBtn")
+        self.add_btn.setFixedHeight(30)
+        self.add_btn.setCursor(Qt.PointingHandCursor)
+        self.add_btn.clicked.connect(self._add)
+        root.addWidget(self.add_btn)
+
+        self._rebuild()
+
+    # ------------------------------------------------------------
+
+    def _rebuild(self) -> None:
+        while self.rows.count():
+            item = self.rows.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+        for index, value in enumerate(self.values):
+            self.rows.addWidget(self._row(index, value))
+        self.add_btn.setEnabled(len(self.values) < self.maximum)
+
+    def _row(self, index: int, value: str) -> QWidget:
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        edit = QLineEdit(value)
+        edit.setPlaceholderText(self.placeholder)
+        edit.setFixedHeight(32)
+        # 글자마다 알리지 않는다. 선택지 하나가 출력 포트 하나라, 치는 동안
+        # 포트가 매 글자 지워졌다 다시 생기고 거기 걸린 연결이 끊긴다.
+        # 지우고 다시 치려는 순간 빈 값이 한 번 넘어가 포트가 통째로
+        # 사라지는 것이 특히 나쁘다. 다른 글자 칸들과 같이 다 치고 나서 알린다.
+        edit.editingFinished.connect(
+            lambda e=edit, i=index: self._set(i, e.text()))
+        lay.addWidget(edit, 1)
+
+        for glyph, tip, slot in (
+            ("↑", "위로", lambda i=index: self._move(i, -1)),
+            ("↓", "아래로", lambda i=index: self._move(i, 1)),
+            ("−", "지우기", lambda i=index: self._remove(i)),
+        ):
+            btn = QPushButton(glyph)
+            btn.setObjectName("GhostBtn")
+            btn.setFixedSize(30, 32)
+            btn.setToolTip(tip)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(slot)
+            lay.addWidget(btn)
+
+        # 맨 위·맨 아래에서는 옮길 곳이 없고, 최소 개수에서는 지울 수 없다
+        lay.itemAt(1).widget().setEnabled(index > 0)
+        lay.itemAt(2).widget().setEnabled(index < len(self.values) - 1)
+        lay.itemAt(3).widget().setEnabled(len(self.values) > self.minimum)
+        return row
+
+    # ------------------------------------------------------------
+
+    def _set(self, index: int, text: str) -> None:
+        # 글자를 고칠 때는 줄을 다시 그리지 않는다 — 커서가 튀어 못 쓴다
+        if 0 <= index < len(self.values) and self.values[index] != text:
+            self.values[index] = text
+            self._emit()
+
+    def _add(self) -> None:
+        if len(self.values) >= self.maximum:
+            return
+        self.values.append("")
+        self._rebuild()
+        self._emit()
+
+    def _remove(self, index: int) -> None:
+        if len(self.values) <= self.minimum:
+            return
+        del self.values[index]
+        self._rebuild()
+        self._emit()
+
+    def _move(self, index: int, step: int) -> None:
+        target = index + step
+        if not (0 <= target < len(self.values)):
+            return
+        self.values[index], self.values[target] = self.values[target], self.values[index]
+        self._rebuild()
+        self._emit()
+
+    def _emit(self) -> None:
+        self.on_change([v.strip() for v in self.values])
 
 
 # ---------------------------------------------------------------- 노드별 필드
@@ -932,6 +1075,24 @@ FIELDS: Dict[str, List[Spec]] = {
         ("sound", "소리", "choice", {"options": SOUND_CHOICES},
          "윈도우 알림 소리를 함께 낼지"),
     ],
+    "ask": [
+        ("prompt", "판단 요청", "text",
+         {"placeholder": "예: 화면의 문제를 읽고 정답을 골라줘"},
+         "Claude 에게 그대로 전달됩니다"),
+        ("choices", "선택지", "list",
+         {"placeholder": "1번", "minimum": 2, "maximum": 10},
+         "고를 수 있는 답. 하나마다 출력이 하나씩 생깁니다."),
+        ("region", "보낼 화면 범위", "region", {},
+         "좁힐수록 정확하고 사용량이 덜 듭니다"),
+    ],
+    "ai_point": [
+        ("prompt", "무엇을 찾을지", "text",
+         {"placeholder": "예: 정답으로 보이는 보기를 짚어줘"},
+         "Claude 에게 그대로 전달됩니다"),
+        ("region", "찾아볼 화면 범위", "region", {"budget": True},
+         "반드시 지정해야 합니다. 넓으면 그림이 줄어 짚는 자리가 흔들리므로 "
+         "그대로 전달되는 크기까지만 고를 수 있습니다."),
+    ],
     "loop": [
         ("max", "반복 횟수", "number", {"minimum": 0, "maximum": 1000000},
          "몸통을 이만큼 되풀이한 뒤 완료로 나갑니다. 0 이면 중지할 때까지."),
@@ -964,6 +1125,8 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     "key_up": {"key": "shift"},
     "delay": {"seconds": 0.5},
     "notify": {"title": "Clikey", "message": "", "seconds": 5, "sound": True},
+    "ask": {"prompt": "", "choices": ["1번", "2번", "3번", "4번"], "region": None},
+    "ai_point": {"prompt": "", "region": None},
     "loop": {"max": 10},
     "rgb_match": {"pos": {"x": 0, "y": 0}, "color": [255, 255, 255], "tolerance": 0},
     "image_match": {"template": "", "region": None, "threshold": 0.9},
@@ -991,7 +1154,13 @@ def build_widget(kind: str, value, options: Dict[str, Any], on_change: Setter) -
     if kind == "image":
         return ImageField(str(value or ""), on_change)
     if kind == "region":
-        return RegionField(value, on_change)
+        return RegionField(value, on_change, budget=options.get("budget", False))
+    if kind == "list":
+        return ListField(
+            value, on_change, options.get("placeholder", ""),
+            minimum=options.get("minimum", 2),
+            maximum=options.get("maximum", 10),
+        )
     if kind == "unit":
         return UnitField(
             value, on_change, options.get("unit", ""),

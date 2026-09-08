@@ -7,31 +7,17 @@
 from __future__ import annotations
 
 import threading
+from contextlib import nullcontext
 from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
 
-from core import hotkeys
-from core.graph import Graph, GraphExecutor, StopReason
-from core.graph.engine import RunResult
-from core.keyboard_hotkey import _get_keyboard
+from core.graph import Graph, GraphExecutor
+from core.runreport import stop_hotkey as _stop_hotkey
 
-STOP_HOTKEY = "f9"
-
-REASON_TEXT = {
-    StopReason.COMPLETED: "끝까지 실행했습니다",
-    StopReason.STOP_NODE: "중지 노드에서 끝났습니다",
-    StopReason.STOPPED: "중지했습니다",
-    StopReason.MAX_STEPS: "노드 실행 횟수 상한에 걸렸습니다",
-    StopReason.TIMEOUT: "최대 실행 시간을 넘겼습니다",
-}
-
-
-def describe(result: RunResult) -> str:
-    if result.reason == StopReason.ERROR:
-        return f"오류로 멈췄습니다 — {result.error}"
-    head = REASON_TEXT.get(result.reason, result.reason)
-    return f"{head} · 노드 {result.steps}회 · {result.elapsed:.1f}초"
+# 문구와 정지키 관리는 core/runreport.py 에 있다 — MCP 서버도 같은 것을 쓴다.
+# 여기서 다시 내보내는 것은 이미 ui_qt.runner 에서 가져다 쓰는 곳이 있어서다.
+from core.runreport import REASON_TEXT, STOP_HOTKEY, describe  # noqa: F401
 
 
 class MacroRunner(QObject):
@@ -49,7 +35,6 @@ class MacroRunner(QObject):
         self._thread: Optional[threading.Thread] = None
         self.notify_asked.connect(self._show_toast)
         self._stop = threading.Event()
-        self._hotkey = None
 
     @property
     def running(self) -> bool:
@@ -67,8 +52,6 @@ class MacroRunner(QObject):
             return False
 
         self._stop.clear()
-        if bind_stop_hotkey:
-            self._bind_stop_hotkey(stop_hotkey)
 
         executor = GraphExecutor(
             graph,
@@ -80,11 +63,14 @@ class MacroRunner(QObject):
             max_seconds=max_seconds,
         )
 
+        # 매크로가 도는 동안에는 마우스·키보드를 매크로가 가져가 창을 클릭해
+        # 멈출 수 없다. 그래서 실행 중에만 전역 정지키를 걸어 둔다.
+        guard = (_stop_hotkey(self._stop, stop_hotkey) if bind_stop_hotkey
+                 else nullcontext())
+
         def work():
-            try:
+            with guard:
                 result = executor.run()
-            finally:
-                self._release_stop_hotkey()
             self.finished.emit(result)
 
         self._thread = threading.Thread(target=work, daemon=True)
@@ -95,7 +81,7 @@ class MacroRunner(QObject):
     def stop(self) -> None:
         self._stop.set()
 
-    # ------------------------------------------------------------ 전역 정지키
+    # ------------------------------------------------------------
 
     @staticmethod
     def _show_toast(title: str, message: str, sound: bool,
@@ -103,23 +89,3 @@ class MacroRunner(QObject):
         from ui_qt import toast
 
         toast.show(title, message, sound, seconds)
-
-    def _bind_stop_hotkey(self, key: str = STOP_HOTKEY) -> None:
-        key = hotkeys.normalize(key or "")
-        if not key or hotkeys.is_bare_modifier(key):
-            self._hotkey = None
-            return
-        try:
-            kb = _get_keyboard()
-            self._hotkey = kb.add_hotkey(key, self.stop, suppress=False)
-        except Exception:
-            self._hotkey = None
-
-    def _release_stop_hotkey(self) -> None:
-        if self._hotkey is None:
-            return
-        try:
-            _get_keyboard().remove_hotkey(self._hotkey)
-        except Exception:
-            pass
-        self._hotkey = None

@@ -6,7 +6,11 @@
 # 바로 실행된다.
 import argparse
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app-name", default="Clikey")
@@ -24,6 +28,22 @@ hidden = [
     "PySide6.QtWidgets",
     "PySide6.QtSvg",          # 아이콘을 SVG 로 그린다
     "PySide6.QtOpenGLWidgets",  # NodeGraphQt 캔버스
+
+    # MCP 서버. 전송 계층은 이름으로 골라 들어가므로 PyInstaller 가 따라가지
+    # 못한다. pydantic 도 모델을 실행 중에 만들어 같은 사정이다.
+    "clikey_mcp",
+    "mcp",
+    "mcp.server",
+    "mcp.server.mcpserver",
+    "mcp_types",
+    "uvicorn",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.lifespan.on",
+    "sse_starlette",
+    "pydantic",
+    "pydantic.deprecated.decorator",
 ]
 
 # 안 쓰는데 딸려 들어오면 결과물만 무거워지는 것들.
@@ -54,6 +74,19 @@ excludes = [
 autoit_bins = collect_dynamic_libs("autoit")
 # NodeGraphQt 는 노드 배경 png 를 파일로 읽는다.
 nodegraph_datas = collect_data_files("NodeGraphQt")
+# mcp 는 스키마 json 을, certifi 는 인증서 묶음을 파일로 들고 있다.
+mcp_datas = collect_data_files("mcp") + collect_data_files("mcp_types")
+# 서브모듈을 이름으로 찾는 곳들 — 통째로 넣어야 전송 계층이 빠지지 않는다.
+# mcp.cli 만 뺀다. 훑는 과정에서 실제로 import 되는데, typer 가 없으면 그
+# 모듈이 프로세스를 통째로 종료시켜 빌드가 거기서 끝난다. 우리는 서버만
+# 쓰므로 CLI 는 결과물에 들어갈 이유도 없다.
+def _no_cli(name):
+    return not name.startswith("mcp.cli")
+
+
+mcp_hidden = (collect_submodules("mcp", filter=_no_cli)
+              + collect_submodules("uvicorn")
+              + collect_submodules("starlette"))
 
 a = Analysis(
     ["app.py"],
@@ -61,8 +94,8 @@ a = Analysis(
     binaries=autoit_bins,
     datas=[
         ("app.ico", "."),
-    ] + nodegraph_datas,
-    hiddenimports=hidden,
+    ] + nodegraph_datas + mcp_datas,
+    hiddenimports=hidden + mcp_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

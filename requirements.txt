@@ -10,6 +10,9 @@ pywin32==311
 opencv-python==4.12.0.88
 numpy==2.2.6
 
+# Claude Code 연동 (MCP 서버)
+mcp==2.2.0
+
 # PyInstaller 빌드 도구
 pyinstaller==6.22.2
 pyinstaller-hooks-contrib==2026.7
@@ -19,6 +22,8 @@ pefile==2024.8.26
 setuptools==84.0.0
 
 # 자동 설치되는 의존성 (명시적 설치 불필요, 참고용)
+# mcp-types, pydantic, starlette, uvicorn, httpx2, sse-starlette,
+# jsonschema, anyio, cryptography, pyjwt  (mcp 의존성)
 # shiboken6==6.11.2  (PySide6 의존성)
 # PySide6_Essentials, PySide6_Addons  (PySide6 의존성)
 # pywin32-ctypes==0.2.3  (pywin32 의존성)

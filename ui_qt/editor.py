@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import hotkeys, prefs, runlog
+from core import hotkeys, prefs, runlock, runlog
 from core.graph import Graph
 from core.graph import layout as auto_layout
 from ui_qt import dialogs, node_view, theme as T
@@ -542,9 +542,15 @@ class EditorWindow(FramelessWindow):
 
     def _on_param_changed(self, node, key: str, value) -> None:
         node.params[key] = value
+        cut = []
         ui = self.made.get(node.id)
         if ui is not None:
             node_view.refresh_card(ui, node)
+
+            # 선택지가 곧 출력 포트다. 바뀌면 포트를 다시 만들어야 하고,
+            # 사라진 선택지에 걸려 있던 흐름은 갈 곳이 없어 끊긴다.
+            if key == "choices":
+                cut = node_view.rebuild_ports(ui, node)
 
         # 시작·종료의 단축키를 바꿨으면 버튼과 안내도 따라간다
         if key == "hotkey" and node.type in node_view.FIXED_TYPES:
@@ -552,6 +558,12 @@ class EditorWindow(FramelessWindow):
 
         self.record_history()
         self._check_dirty()
+
+        # 상태줄은 _check_dirty 가 다시 쓴다. 끊긴 연결은 그 뒤에 얹어야
+        # 사용자 눈에 남는다.
+        if cut:
+            self.status.setText(
+                f"선택지를 지워 연결이 끊겼습니다 — {', '.join(cut)}")
 
     # ------------------------------------------------------------ 매크로 단축키
 
@@ -653,6 +665,20 @@ class EditorWindow(FramelessWindow):
         if self.runner.running:
             return
 
+        # 버튼은 이미 잠겨 있다. 단축키로도 들어올 수 있으므로 여기서도
+        # 막되 알림까지 띄우지는 않는다 — 까닭은 버튼에 올리면 나온다.
+        if self.model.mcp_only:
+            self.status.setText(self.MCP_ONLY_WHY)
+            return
+
+        # 실행권은 대시보드·Claude 와 함께 본다. 둘이 동시에 돌면 마우스를
+        # 서로 뺏어 어느 쪽도 제대로 돌지 않는다.
+        busy = runlock.holder()
+        if busy is not None:
+            dialogs.alert(self, "지금은 실행할 수 없음",
+                          "‘" + busy + "’ 가 돌고 있습니다.")
+            return
+
         problems = self.model.validate()
         if problems:
             dialogs.alert(self, "실행할 수 없음",
@@ -662,6 +688,9 @@ class EditorWindow(FramelessWindow):
         # 실행 설정은 이 매크로(시작 노드)의 값을 쓴다
         settings = self.model.run_settings(prefs.load())
         _, stop_key = self.macro_keys()
+        if not runlock.acquire(self.path.stem):
+            return
+
         started = self.runner.start(
             self.model,
             step_delay=settings["step_delay"],
@@ -670,6 +699,7 @@ class EditorWindow(FramelessWindow):
             stop_hotkey=stop_key,
         )
         if not started:
+            runlock.release()
             return
 
         # 편집기에서 돌린 것도 실행이다 — 목록의 마지막 실행에 남긴다
@@ -697,13 +727,14 @@ class EditorWindow(FramelessWindow):
         self._active_node = node_id
 
     def _on_run_finished(self, result) -> None:
+        runlock.release()
         if self._active_node and self._active_node in self.made:
             self.made[self._active_node].view.running = False
             self.made[self._active_node].view.update()
         self._active_node = None
 
-        self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self._refresh_run_button()
         self.status.setText(describe(result))
         QTimer.singleShot(6000, self._refresh_status)
 
@@ -905,8 +936,23 @@ class EditorWindow(FramelessWindow):
         lay.addWidget(hint)
         return bar
 
+    #: 여기서는 실행할 수 없는 까닭. 버튼에 마우스를 올리면 이것이 보인다.
+    MCP_ONLY_WHY = ("AI 판단 노드는 판단해 줄 상대가 필요합니다. "
+                    "Claude Code 에서 실행하세요.")
+
+    def _refresh_run_button(self) -> None:
+        """AI 판단이 든 매크로는 실행 버튼을 잠근다.
+
+        눌러 놓고 알림으로 막으면 손이 한 번 더 간다. 애초에 눌리지 않게 하고
+        까닭은 마우스를 올렸을 때만 보여준다.
+        """
+        blocked = self.model.mcp_only
+        self.run_btn.setEnabled(not blocked and not self.runner.running)
+        self.run_btn.setToolTip(self.MCP_ONLY_WHY if blocked else "")
+
     def _refresh_status(self) -> None:
         self.sync_from_canvas()
+        self._refresh_run_button()
         problems = self.model.validate()
         text = f"노드 {len(self.model.nodes)} · 연결 {len(self.model.edges)}"
         if problems:
@@ -923,6 +969,9 @@ class EditorWindow(FramelessWindow):
 
     def changeEvent(self, event):
         super().changeEvent(event)
+        # 설정은 대시보드에서 연다. 창을 다시 잡을 때 연동 여부를 다시 본다.
+        if event.type() == QEvent.ActivationChange and self.isActiveWindow():
+            self.palette.refresh_gates()
         if event.type() == QEvent.WindowStateChange and hasattr(self, "_max_btn"):
             self._max_btn.set_glyph("restore" if self.isMaximized() else "maximize")
 

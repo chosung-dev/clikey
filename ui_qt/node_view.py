@@ -26,6 +26,7 @@ from NodeGraphQt.widgets.viewer import NodeViewer
 from Qt import QtCore, QtGui, QtWidgets
 
 from core.graph import Graph
+from core.graph.model import CHOICE_TYPES
 from ui_qt import theme as T
 
 # ---------------------------------------------------------------- 노드 종류
@@ -38,6 +39,7 @@ CATEGORY = {
     "delay": "wait",
     "notify": "wait",
     "image_match": "condition", "rgb_match": "condition",
+    "ask": "ai", "ai_point": "ai",
     "loop": "loop",
 }
 
@@ -52,6 +54,7 @@ LABEL = {
     "delay": "대기",
     "notify": "알림",
     "image_match": "이미지 검색", "rgb_match": "색상 검색",
+    "ask": "AI 판단", "ai_point": "AI 위치 찾기",
     "loop": "반복",
 }
 
@@ -65,6 +68,8 @@ SKIN = {
     "wait":      {"border": _rgb("#D3D6DD"), "accent": _rgb("#6B7280")},
     "condition": {"border": _rgb("#EBD5AE"), "accent": _rgb("#C07818")},
     "loop":      {"border": _rgb("#D3C7EC"), "accent": _rgb("#7350B8")},
+    # 판단을 밖에 맡기는 노드. 다른 갈래들과 한눈에 구별되게 따로 둔다.
+    "ai":        {"border": _rgb("#B3D6D0"), "accent": _rgb("#1F7A6E")},
     "flow":      {"border": _rgb("#E8C4C1"), "accent": _rgb(T.DANGER)},
 }
 
@@ -156,6 +161,13 @@ class ClikeyNodeItem(NodeItem):
     RADIUS = 10.0
     PREVIEW_H = 64          # 미리보기가 차지하는 높이
     PREVIEW_GAP = 8
+    PORT_LABEL_H = 14       # 아래 포트 이름이 차지하는 띠
+    PORT_LABEL_PAD = 12     # 이름 사이 최소 간격
+    # 포트 점은 카드 아래 모서리에 중심이 걸려 반지름만큼 위로 올라온다.
+    # 그만큼 비워야 글자가 점에 닿지 않는다.
+    PORT_LABEL_GAP = 9
+    PORT_LABEL_MAX_W = 340  # 이름이 길어도 카드가 이보다 넓어지지는 않는다
+    DETAIL_H = 16           # 제목 아래 설명 한 줄이 차지하는 높이
 
     def __init__(self, name="node", parent=None):
         super().__init__(name, parent)
@@ -168,6 +180,9 @@ class ClikeyNodeItem(NodeItem):
         self._hovered = False
         self.setAcceptHoverEvents(True)
         self._preview = QtGui.QPixmap()      # 이미지 검색 노드의 그림
+        #: 출력 포트 위에 적어줄 이름. 판단 노드의 선택지에만 쓴다 — 세로
+        #: 배치에서는 NodeGraphQt 가 포트 라벨을 무조건 숨기므로 직접 그린다.
+        self.port_labels: list = []
         self.text_item.setVisible(False)     # 내장 라벨은 카드 밖에 그려진다
         # 위치가 바뀔 때 알림을 받아야 끌면서 맞출 수 있다
         self.setFlag(QtWidgets.QGraphicsItem.ItemSendsGeometryChanges, True)
@@ -267,6 +282,32 @@ class ClikeyNodeItem(NodeItem):
     def _preview_block(self) -> float:
         return 0.0 if self._preview.isNull() else self.PREVIEW_H + self.PREVIEW_GAP
 
+    def _label_font(self) -> QtGui.QFont:
+        font = QtGui.QFont()
+        font.setPointSizeF(8.0)
+        return font
+
+    def _label_gap(self, width: float) -> float:
+        """이름 하나가 쓸 수 있는 가로 자리.
+
+        포트는 폭을 (개수 + 1) 로 나눈 자리에 앉는다. 이름은 그 점 위에
+        가운데를 맞추므로, 이웃과 부딪히지 않으려면 이 간격 안에 들어와야
+        한다. 개수로 나누면 그보다 넓게 잡혀 이름끼리 맞붙는다.
+        """
+        return width / (len(self.port_labels) + 1)
+
+    def _labels_width(self) -> float:
+        """포트 이름이 서로 닿지 않으려면 카드가 이만큼은 넓어야 한다."""
+        if not self.port_labels:
+            return 0.0
+        metrics = QtGui.QFontMetricsF(self._label_font())
+        widest = max(metrics.horizontalAdvance(str(name))
+                     for name in self.port_labels)
+        # 가장 넓은 이름을 기준으로 잡는다 — 자리는 모두 같은 폭이다
+        need = (len(self.port_labels) + 1) * (widest + self.PORT_LABEL_PAD)
+        # 이름이 길다고 카드가 끝없이 넓어지지는 않게 한다. 넘치면 줄여 적는다.
+        return min(need, self.PORT_LABEL_MAX_W)
+
     def calc_size(self, add_w=0.0, add_h=0.0):
         width, height = super().calc_size(add_w, add_h)
         block = self._preview_block()
@@ -274,7 +315,66 @@ class ClikeyNodeItem(NodeItem):
             # 기본 높이(글자 아래 여백을 품은 값) 위에 얹어야 포트가 글자에
             # 닿지 않는다. 내용만큼만 늘리면 그 여백이 사라진다.
             height = max(height, NodeEnum.HEIGHT.value) + block
+        if self.port_labels:
+            # 이름이 서로 겹치지 않을 만큼 넓히고, 아래에 적을 자리를 둔다
+            width = max(width, self._labels_width())
+            height = (max(height, NodeEnum.HEIGHT.value)
+                      + self.PORT_LABEL_H + self.PORT_LABEL_GAP)
+            # 기본 높이는 제목과 설명 두 줄을 담는 값이다. 설명이 없는데도
+            # 그만큼 두면 제목과 이름줄 사이가 휑하게 빈다.
+            if not self.detail:
+                height -= self.DETAIL_H
         return width, height
+
+    def set_detail(self, text: str) -> None:
+        """설명 줄을 바꾼다. 있고 없고가 뒤집히면 높이도 다시 잰다."""
+        text = text or ""
+        was = bool(self.detail)
+        self.detail = text
+        if self.port_labels and was != bool(text) and self.scene() is not None:
+            self.draw_node()
+        self.update()
+
+    def set_port_labels(self, names) -> None:
+        names = [str(n) for n in (names or [])]
+        if names == self.port_labels:
+            return
+        self.port_labels = names
+        if self.scene() is not None:
+            self.draw_node()          # 폭·높이가 달라졌으니 포트도 다시 앉힌다
+        self.update()
+
+    def _paint_port_labels(self, painter, rect) -> None:
+        """포트 점 바로 위에 선택지 이름을 적는다.
+
+        점만 넷이면 어느 것이 몇 번인지 알 수 없다. 자리는 포트를 앉히는
+        규칙(폭을 개수+1 로 나눈 자리)과 똑같이 계산한다.
+        """
+        ports = [p for p in self.outputs if p.isVisible()]
+        if not ports or len(ports) != len(self.port_labels):
+            return
+
+        painter.save()
+        painter.setFont(self._label_font())
+        painter.setPen(QtGui.QColor(*INK2_RGB))
+        metrics = QtGui.QFontMetricsF(self._label_font())
+        # 이웃한 이름 사이에 손가락 하나쯤은 남긴다
+        room = max(24.0, self._label_gap(rect.width()) - 6)
+        top = rect.bottom() - self.PORT_LABEL_GAP - self.PORT_LABEL_H
+
+        # 이름줄이 어디서 시작하는지 옅은 선으로 한 번 끊어준다. 없으면 설명
+        # 글씨와 같은 덩어리로 읽혀 무엇을 가리키는 이름인지 알기 어렵다.
+        painter.setPen(QtGui.QPen(QtGui.QColor(*_rgb(T.RULE_1)), 1.0))
+        painter.drawLine(QtCore.QPointF(rect.left() + 10, top - 3),
+                         QtCore.QPointF(rect.right() - 10, top - 3))
+
+        painter.setPen(QtGui.QColor(*INK2_RGB))
+        for port, name in zip(ports, self.port_labels):
+            text = metrics.elidedText(str(name), QtCore.Qt.ElideRight, room)
+            middle = port.pos().x() + port.boundingRect().width() / 2
+            box = QtCore.QRectF(middle - room / 2, top, room, self.PORT_LABEL_H)
+            painter.drawText(box, QtCore.Qt.AlignCenter, text)
+        painter.restore()
 
     def setToolTip(self, text):
         """마우스를 올렸을 때 나오는 안내를 없앤다.
@@ -376,6 +476,9 @@ class ClikeyNodeItem(NodeItem):
                 self.detail,
             )
 
+        if self.port_labels:
+            self._paint_port_labels(painter, rect)
+
         painter.restore()
 
 
@@ -406,6 +509,8 @@ def summarize(node) -> str:
     if node.type == "rgb_match":
         color = p.get("color")
         return f"RGB{tuple(color)}" if color else ""
+    if node.type in ("ask", "ai_point"):
+        return str(p.get("prompt", ""))
     if node.type == "loop":
         limit = int(p.get("max", 0) or 0)
         return "무한 반복" if limit <= 0 else f"최대 {limit}회"
@@ -579,6 +684,7 @@ def _install_back_edge_routing() -> None:
 #: 여기 없는 포트(다음 · 참 · 반복 · 완료)는 기본색을 그대로 쓴다.
 PORT_COLORS = {
     "false": T.INK_3,
+    "못 찾음": T.INK_3,
 }
 
 
@@ -862,10 +968,19 @@ def dress_node(ui, model_node) -> None:
     refresh_card(ui, model_node)
 
     ui.add_input("in", multi_input=True, display_name=False)
+    # 선택지가 포트가 되는 노드는 이름을 적어야 한다. true/false 둘은 위아래
+    # 자리로 구별되지만, 선택지가 넷이면 이름 없이는 어느 것이 몇 번인지
+    # 알 수 없다.
+    named = model_node.type in CHOICE_TYPES
+    # 선택지는 편집 중에 바뀐다. 바뀌면 포트를 다시 만들어야 하므로 지울 수
+    # 있게 열어 둔다.
+    ui.set_port_deletion_allowed(named)
     for port in model_node.ports:
         # 출력 하나에서 갈 수 있는 다음 노드는 하나뿐이다. 여럿을 허용하면
         # 화면에는 선이 둘 그려지는데 실행은 하나만 따라가 조용히 어긋난다.
         ui.add_output(port, display_name=False, multi_output=False)
+    if named:
+        ui.view.set_port_labels(model_node.ports)
 
     skin = SKIN[CATEGORY.get(model_node.type, "wait")]
     ui.view.border_color = (*skin["border"], 255)
@@ -884,10 +999,48 @@ def add_node(model_node, ng: NodeGraph, pos) -> object:
     return ui
 
 
+def rebuild_ports(ui, model_node) -> list:
+    """선택지가 바뀐 노드의 출력 포트를 다시 만든다.
+
+    이름이 그대로 남은 선택지는 연결도 그대로 잇는다. 사라진 선택지에 걸려
+    있던 연결은 갈 곳이 없어져 끊긴다 — 돌려줄 목록에 그 이름을 담아 부르는
+    쪽이 사용자에게 알릴 수 있게 한다.
+    """
+    wanted = list(model_node.ports)
+    current = list(ui.outputs().keys())
+    if wanted == current:
+        return []
+
+    # 어디로 이어져 있었는지 먼저 적어둔다. 포트를 지우면 함께 사라진다.
+    linked = {}
+    for name, port in ui.outputs().items():
+        targets = port.connected_ports()
+        if targets:
+            linked[name] = targets[0]
+
+    # 이어진 채로 지우면 선만 화면에 남는다. 남은 선은 출발 포트를 잃어
+    # 그릴 때마다 예외를 내고, 캔버스가 통째로 멈춘다.
+    for name in current:
+        port = ui.get_output(name)
+        if port is not None:
+            port.clear_connections(push_undo=False, emit_signal=False)
+        ui.delete_output(name)
+    for name in wanted:
+        ui.add_output(name, display_name=False, multi_output=False)
+    ui.view.set_port_labels(wanted)
+
+    for name, target in linked.items():
+        if name in wanted:
+            ui.get_output(name).connect_to(target, push_undo=False,
+                                           emit_signal=False)
+
+    return [name for name in linked if name not in wanted]
+
+
 def refresh_card(ui, model_node) -> None:
     """파라미터가 바뀌었을 때 카드의 문구와 미리보기를 갱신."""
     ui.view.title = model_node.name or LABEL.get(model_node.type, model_node.type)
-    ui.view.detail = summarize(model_node)
+    ui.view.set_detail(summarize(model_node))
     ui.view.set_preview(preview_for(model_node))
 
 

@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.graph import Graph, GraphExecutor, StopReason  # noqa: E402
 from core.graph.model import SCHEMA_VERSION, Edge, Node, resolve_pos  # noqa: E402
+from core import runreport  # noqa: E402
 
 
 def trace(executor_cls, graph, **kwargs):
@@ -399,6 +400,243 @@ def test_notify_without_a_way_just_passes_through():
     result = GraphExecutor(g).run()
     assert result.reason == StopReason.STOP_NODE
     assert result.error is None
+
+# ---------------------------------------------------------------- ask 노드
+
+
+def ask_graph(choices=("1번", "2번", "3번"), prompt="정답을 골라줘"):
+    """선택지마다 대기 노드가 하나씩 달린 판단 그래프."""
+    g = Graph()
+    g.add_node("start", node_id="s")
+    g.add_node("ask", {"prompt": prompt, "choices": list(choices)}, node_id="a")
+    g.connect("s", "a")
+    for name in choices:
+        g.add_node("delay", {"ms": 0}, node_id=f"d-{name}")
+        g.connect("a", f"d-{name}", port=name)
+    return g
+
+
+def test_ask_ports_follow_choices():
+    node = Node("a", "ask", {"choices": ["예", "아니오"]})
+    assert node.ports == ("예", "아니오")
+
+    node.params["choices"] = ["1번", "2번", "3번"]
+    assert node.ports == ("1번", "2번", "3번")
+
+
+def test_ask_ports_drop_blank_and_duplicate():
+    node = Node("a", "ask", {"choices": ["1번", "", "1번", "  ", "2번"]})
+    assert node.ports == ("1번", "2번")
+
+
+def test_validate_catches_thin_and_duplicate_choices():
+    joined = " / ".join(ask_graph(choices=["1번"]).validate())
+    assert "선택지가 둘 이상" in joined, joined
+
+    g = ask_graph(choices=["1번", "2번"])
+    g.nodes["a"].params["choices"] = ["1번", "1번"]
+    joined = " / ".join(g.validate())
+    assert "겹칩니다" in joined, joined
+
+    g = ask_graph()
+    g.nodes["a"].params["prompt"] = "   "
+    assert any("판단 요청" in p for p in g.validate())
+
+
+def test_ask_graph_is_mcp_only():
+    assert ask_graph().mcp_only is True
+    plain = Graph()
+    plain.add_node("start", node_id="s")
+    assert plain.mcp_only is False
+
+
+def test_ask_without_decider_stops_distinctly():
+    result = GraphExecutor(ask_graph()).run()
+    # 중지 노드로 보고되면 성공으로 위장된다 — 반드시 구별돼야 한다
+    assert result.reason == StopReason.NO_DECIDER, result.reason
+    assert result.reason not in runreport.GOOD_REASONS
+
+
+def test_ask_takes_the_chosen_port():
+    visited, result, _ = trace(GraphExecutor, ask_graph(), ask=lambda n: "2번")
+    assert result.reason == StopReason.COMPLETED
+    assert visited == ["s", "a", "d-2번"], visited
+
+
+def test_ask_rejects_an_unknown_choice():
+    for answer in ("5번", None, ""):
+        result = GraphExecutor(ask_graph(), ask=lambda n, a=answer: a).run()
+        assert result.reason == StopReason.BAD_DECISION, (answer, result.reason)
+        assert result.reason not in runreport.GOOD_REASONS
+
+
+def test_ask_sees_the_node_it_asks_about():
+    seen = []
+
+    def ask(node):
+        seen.append((node.id, node.params["prompt"], node.ports))
+        return "1번"
+
+    GraphExecutor(ask_graph()).run()           # 상대가 없으면 부르지도 않는다
+    assert seen == []
+
+    GraphExecutor(ask_graph(), ask=ask).run()
+    assert seen == [("a", "정답을 골라줘", ("1번", "2번", "3번"))], seen
+
+
+def test_waiting_for_a_decision_does_not_spend_the_time_limit():
+    import time
+
+    def slow(node):
+        time.sleep(0.4)
+        return "1번"
+
+    result = GraphExecutor(ask_graph(), ask=slow, max_seconds=0.2).run()
+    assert result.reason == StopReason.COMPLETED, result.reason
+    assert result.elapsed < 0.2, result.elapsed
+
+
+def test_on_exit_reports_the_port_taken():
+    steps = []
+    ex = GraphExecutor(ask_graph(), ask=lambda n: "3번",
+                       on_exit=lambda nid, port: steps.append((nid, port)))
+    ex.run()
+    assert ("a", "3번") in steps, steps
+    assert ("s", "next") in steps, steps
+
+
+def test_path_recorder_keeps_only_the_forks():
+    g = ask_graph()
+    recorder = runreport.PathRecorder(g)
+    GraphExecutor(g, ask=lambda n: "2번", on_exit=recorder).run()
+
+    path = recorder.result()
+    # start 와 delay 는 나갈 곳이 하나뿐이라 남기지 않는다
+    assert path == ["ask(a) → 2번"], path
+
+
+def test_summarize_run_marks_a_failed_decision():
+    g = ask_graph()
+    recorder = runreport.PathRecorder(g)
+    result = GraphExecutor(g, ask=lambda n: "없는답", on_exit=recorder).run()
+
+    summary = runreport.summarize_run(result, recorder.result())
+    assert summary["ok"] is False
+    assert summary["reason"] == StopReason.BAD_DECISION
+    assert "선택지에 없는 답" in summary["text"]
+    assert summary["path"] == ["ask(a) → 없음"], summary["path"]
+
+
+def test_ask_graph_survives_a_roundtrip():
+    g = ask_graph()
+    restored = Graph.from_dict(g.to_dict())
+    assert restored.nodes["a"].ports == ("1번", "2번", "3번")
+    assert restored.next_id("a", "2번") == "d-2번"
+    assert restored.mcp_only is True
+    assert g.to_dict()["version"] == SCHEMA_VERSION
+
+
+# ---------------------------------------------------------------- ai_point
+
+
+def point_graph(region=(100, 100, 500, 400), prompt="빨간 점을 짚어줘"):
+    g = Graph()
+    g.add_node("start", node_id="s")
+    g.add_node("ai_point", {"prompt": prompt,
+                            "region": list(region) if region else None},
+               node_id="p")
+    g.connect("s", "p")
+    g.add_node("delay", {"ms": 0}, node_id="hit")
+    g.add_node("delay", {"ms": 0}, node_id="miss")
+    g.connect("p", "hit", port="찾음")
+    g.connect("p", "miss", port="못 찾음")
+    return g
+
+
+def test_point_node_has_two_fixed_ports():
+    assert point_graph().nodes["p"].ports == ("찾음", "못 찾음")
+
+
+def test_point_turns_a_fraction_into_a_screen_coordinate():
+    # 영역이 (100,100)-(500,400) 이므로 400 x 300
+    for frac, want in (({"x": 0.0, "y": 0.0}, (100, 100)),
+                       ({"x": 1.0, "y": 1.0}, (500, 400)),
+                       ({"x": 0.5, "y": 0.5}, (300, 250)),
+                       ((0.25, 0.75), (200, 325))):
+        ex = GraphExecutor(point_graph(), ask=lambda n, f=frac: f)
+        ex.run()
+        assert ex.coords["p"] == want, (frac, ex.coords.get("p"))
+
+
+def test_point_coordinate_reaches_the_next_node():
+    ex = GraphExecutor(point_graph(), ask=lambda n: {"x": 0.25, "y": 0.75})
+    ex.run()
+    assert resolve_pos({"x": {"ref": "p"}, "y": {"ref": "p"}}, ex.coords) == (200, 325)
+
+
+def test_point_branches_on_whether_it_was_found():
+    visited, result, _ = trace(GraphExecutor, point_graph(),
+                               ask=lambda n: {"x": 0.5, "y": 0.5})
+    assert visited == ["s", "p", "hit"], visited
+    assert result.reason == StopReason.COMPLETED
+
+    visited, result, _ = trace(GraphExecutor, point_graph(), ask=lambda n: None)
+    assert visited == ["s", "p", "miss"], visited
+
+
+def test_point_rejects_answers_outside_the_frame():
+    for bad in ({"x": 1.5, "y": 0.5}, {"x": -0.1, "y": 0.5}, "가운데",
+                {"x": "a", "y": 0.5}, (0.5,)):
+        result = GraphExecutor(point_graph(), ask=lambda n, b=bad: b).run()
+        assert result.reason == StopReason.BAD_DECISION, (bad, result.reason)
+
+
+def test_point_without_a_decider_stops_distinctly():
+    assert GraphExecutor(point_graph()).run().reason == StopReason.NO_DECIDER
+
+
+def test_point_requires_a_region_that_survives_unshrunk():
+    assert any("범위를 지정" in p for p in point_graph(region=None).validate())
+
+    wide = point_graph(region=(0, 0, 3000, 100))       # 긴 변 초과
+    assert any("긴 변" in p for p in wide.validate()), wide.validate()
+
+    fat = point_graph(region=(0, 0, 2000, 2000))       # 토큰 초과
+    assert any("토큰" in p for p in fat.validate()), fat.validate()
+
+    assert point_graph().validate() == []
+
+
+def test_point_requires_a_prompt():
+    assert any("무엇을 찾을지" in p for p in point_graph(prompt="  ").validate())
+
+
+def test_vision_budget_matches_the_documented_limits():
+    from core.graph.model import (VISION_MAX_EDGE, VISION_MAX_TOKENS,
+                                  vision_tokens)
+
+    # 28px 칸으로 나눈 뒤 올림한 개수를 곱한다
+    assert vision_tokens(28, 28) == 1
+    assert vision_tokens(29, 28) == 2
+    assert vision_tokens(1000, 1000) == 1296
+    # 문서에 적힌 고해상도 한계와 정확히 맞는 크기
+    assert vision_tokens(VISION_MAX_EDGE, 1449) == VISION_MAX_TOKENS
+
+
+def test_point_graph_is_mcp_only_and_leaves_coordinates():
+    from core.graph.model import LOCATING_TYPES
+
+    assert point_graph().mcp_only is True
+    assert "ai_point" in LOCATING_TYPES
+    assert point_graph().locators() == ["p"]
+
+
+def test_point_graph_survives_a_roundtrip():
+    restored = Graph.from_dict(point_graph().to_dict())
+    assert restored.nodes["p"].ports == ("찾음", "못 찾음")
+    assert restored.next_id("p", "찾음") == "hit"
+    assert restored.mcp_only is True
+
 
 # ----------------------------------------------------------------
 

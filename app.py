@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Signal  # noqa: E402
 from PySide6.QtGui import QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from core import prefs  # noqa: E402
 from core.persistence import load_app_state, save_app_state  # noqa: E402
 from core.version import (  # noqa: E402
     __version__,
@@ -80,10 +81,21 @@ def main() -> int:
 
     UpdateChecker(window).start()
 
+    # Claude MCP 연동. 켜져 있을 때만 포트를 연다. 설정에서 켜고 끄면
+    # 같은 길(mcp_bridge.apply)로 그 자리에서 따라간다.
+    from ui_qt import mcp_bridge  # noqa: E402
+
+    settings = prefs.load()
+    mcp_bridge.apply(bool(settings.get("mcp_enabled")),
+                     int(settings.get("mcp_port") or mcp_bridge.PORT))
+
     print(f"[Startup] UI ready in {time.perf_counter() - _startup_time:.3f}s")
     try:
         return app.exec()
     finally:
+        # 붙들려 있는 실행을 먼저 풀어준다 — 그대로 두면 마우스를 쥔 채
+        # 프로세스가 사라진다
+        mcp_bridge.stop()
         # 알림을 띄웠다면 알림 영역에 아이콘이 남아 있다
         from ui_qt import toast
         toast.close()

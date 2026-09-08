@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from core.graph.model import AI_TYPES
+
 MACRO_SUFFIX = ".clikey"
 ROOT_FOLDER_NAME = "Clikey"
 UNFILED = "분류 없음"
@@ -67,6 +69,7 @@ class MacroFile:
     start_key: str = ""      # 시작 노드에 적힌 실행 단축키
     stop_key: str = ""       # 종료 노드에 적힌 종료 단축키
     enabled: bool = True     # 꺼두면 단축키를 걸지 않는다
+    mcp_only: bool = False   # 판단 노드가 있어 Claude 를 거쳐야만 도는 매크로
 
 
 def humanize(timestamp: float) -> str:
@@ -100,22 +103,22 @@ _CACHE_LIMIT = 2000
 
 
 def read_summary(path: Path, stat=None):
-    """(노드 수, 실행 단축키, 종료 단축키, 사용 여부).
+    """(노드 수, 실행 단축키, 종료 단축키, 사용 여부, 판단 노드 있음).
 
-    그래프 파일이 아니면 (None, "", "", True).
+    그래프 파일이 아니면 (None, "", "", True, False).
     """
     try:
         info = stat or path.stat()
         stamp = (info.st_mtime_ns, info.st_size)
     except OSError:
-        return None, "", "", True
+        return None, "", "", True, False
 
     key = str(path)
     cached = _NODE_COUNT_CACHE.get(key)
     if cached is not None and cached[0] == stamp:
         return cached[1]
 
-    summary = (None, "", "", True)
+    summary = (None, "", "", True, False)
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -125,15 +128,19 @@ def read_summary(path: Path, stat=None):
         nodes = data.get("nodes")
         if isinstance(nodes, dict):
             start_key = stop_key = ""
+            asks = False
             for node in nodes.values():
                 if not isinstance(node, dict):
                     continue
-                if node.get("type") == "start" and not start_key:
+                kind = node.get("type")
+                if kind == "start" and not start_key:
                     start_key = str(node.get("hotkey") or "")
-                elif node.get("type") == "stop" and not stop_key:
+                elif kind == "stop" and not stop_key:
                     stop_key = str(node.get("hotkey") or "")
+                elif kind in AI_TYPES:
+                    asks = True
             enabled = data.get("enabled", True) is not False
-            summary = (len(nodes), start_key, stop_key, enabled)
+            summary = (len(nodes), start_key, stop_key, enabled, asks)
 
     if len(_NODE_COUNT_CACHE) > _CACHE_LIMIT:
         _NODE_COUNT_CACHE.clear()
@@ -165,7 +172,7 @@ def scan(root: Optional[Path] = None) -> List[MacroFile]:
                 continue
 
             # stat 을 재사용해 파일 정보를 한 번만 조회한다
-            nodes, start_key, stop_key, enabled = read_summary(child, info)
+            nodes, start_key, stop_key, enabled, mcp_only = read_summary(child, info)
             entries.append(MacroFile(
                 path=child,
                 name=child.stem,
@@ -176,6 +183,7 @@ def scan(root: Optional[Path] = None) -> List[MacroFile]:
                 start_key=start_key,
                 stop_key=stop_key,
                 enabled=enabled,
+                mcp_only=mcp_only,
             ))
 
     collect(root, UNFILED)

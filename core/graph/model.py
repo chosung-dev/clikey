@@ -5,7 +5,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import json
 import uuid
 
-SCHEMA_VERSION = 1
+#: 2 부터 ask 노드가 들어간다. 올려두지 않으면 구버전 앱이 ask 를 모르는
+#: 노드로 보고 조용히 건너뛴다(engine._execute) — 판단을 빼먹고 아무 답이나
+#: 누른 것처럼 진행하므로, 읽지 못하게 막는 편이 안전하다.
+SCHEMA_VERSION = 2
 
 # 노드 종류 -> 출력 포트. 빈 튜플이면 흐름이 여기서 끝난다.
 NODE_PORTS: Dict[str, Tuple[str, ...]] = {
@@ -28,15 +31,73 @@ NODE_PORTS: Dict[str, Tuple[str, ...]] = {
     "rgb_match": ("true", "false"),
 
     "loop": ("loop", "done"),
+
+    # ask 의 출력은 params["choices"] 에서 나온다(Node.ports). 여기 빈 튜플은
+    # validate 의 "알 수 없는 노드 종류" 검사를 통과시키기 위한 자리다.
+    "ask": (),
+    "ai_point": ("찾음", "못 찾음"),
 }
 
 # 좌표를 찾아 뒤쪽 노드가 참조할 수 있게 남기는 노드들
-LOCATING_TYPES = frozenset({"image_match", "rgb_match"})
-CONDITION_TYPES = frozenset({"image_match", "rgb_match"})
+LOCATING_TYPES = frozenset({"image_match", "rgb_match", "ai_point"})
+CONDITION_TYPES = frozenset({"image_match", "rgb_match", "ai_point"})
+
+#: 출력 포트가 파라미터에서 나오는 노드들. 선택지 하나가 곧 포트 하나다.
+CHOICE_TYPES = frozenset({"ask"})
+
+#: 판단을 밖에 맡기는 노드들. 하나라도 있으면 Clikey 안에서는 돌 수 없다.
+AI_TYPES = frozenset({"ask", "ai_point"})
+
+#: 화면 그림을 보낼 때 줄어들지 않는 한계 (Claude 4.7 이후 기준).
+#: 28x28 픽셀 한 칸이 비주얼 토큰 하나이고, 긴 변과 칸 수 둘 다 넘지 않아야
+#: 원본 그대로 전달된다. 줄어들면 글씨가 뭉개져 짚는 자리가 흔들린다.
+VISION_MAX_EDGE = 2576
+VISION_MAX_TOKENS = 4784
+VISION_PATCH = 28
+
+
+def vision_tokens(width: int, height: int) -> int:
+    """그림 하나가 차지하는 비주얼 토큰 수."""
+    return (-(-int(width) // VISION_PATCH)) * (-(-int(height) // VISION_PATCH))
+
+
+def region_problem(region: Any) -> str:
+    """영역이 그대로 전달될 수 있는지. 문제가 없으면 빈 문자열."""
+    if not (isinstance(region, (list, tuple)) and len(region) == 4):
+        return "보낼 화면 범위를 지정해야 합니다."
+
+    x1, y1, x2, y2 = (int(v) for v in region)
+    width, height = x2 - x1, y2 - y1
+    if width <= 0 or height <= 0:
+        return "보낼 화면 범위가 비어 있습니다."
+
+    if max(width, height) > VISION_MAX_EDGE:
+        return (f"범위의 긴 변이 {max(width, height)}px 입니다. "
+                f"{VISION_MAX_EDGE}px 이하로 줄여주세요.")
+
+    tokens = vision_tokens(width, height)
+    if tokens > VISION_MAX_TOKENS:
+        return (f"범위가 너무 넓습니다 ({width}×{height}, {tokens}토큰). "
+                f"{VISION_MAX_TOKENS}토큰 이하가 되게 줄여주세요.")
+    return ""
 
 
 def new_id() -> str:
     return "n" + uuid.uuid4().hex[:8]
+
+
+def choice_ports(choices: Any) -> Tuple[str, ...]:
+    """선택지 목록을 출력 포트 이름으로. 빈 것과 겹치는 것은 걸러낸다.
+
+    겹친 이름을 그대로 두면 포트가 하나로 합쳐져 나중 것이 사라진다. 여기서
+    미리 접어두고, 사용자에게는 `validate` 가 따로 알린다.
+    """
+    ports: List[str] = []
+    for choice in (choices or ()):
+        name = str(choice).strip()
+        if name and name not in ports:
+            ports.append(name)
+    return tuple(ports)
 
 
 # ---------------------------------------------------------------- 좌표
@@ -82,6 +143,8 @@ class Node:
 
     @property
     def ports(self) -> Tuple[str, ...]:
+        if self.type in CHOICE_TYPES:
+            return choice_ports(self.params.get("choices"))
         return NODE_PORTS.get(self.type, ())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -222,6 +285,11 @@ class Graph:
             if node.type not in NODE_PORTS:
                 problems.append(f"{node_id}: 알 수 없는 노드 종류 '{node.type}'")
                 continue
+
+            if node.type in CHOICE_TYPES:
+                problems.extend(self._choice_problems(node_id, node))
+            if node.type == "ai_point":
+                problems.extend(self._point_problems(node_id, node))
             for key in ("pos",):
                 ref_ids = [
                     r for r in (_axis_ref(node.params.get(key, {}).get(axis))
@@ -259,6 +327,48 @@ class Graph:
             seen_ports.add(key)
 
         return problems
+
+    @staticmethod
+    def _choice_problems(node_id: str, node: Node) -> List[str]:
+        """선택지가 포트가 되므로 비거나 겹치면 흐름이 끊긴다."""
+        problems: List[str] = []
+        raw = [str(c).strip() for c in (node.params.get("choices") or ())]
+        kept = [c for c in raw if c]
+
+        if len(kept) < 2:
+            problems.append(f"{node_id}: 선택지가 둘 이상 있어야 합니다.")
+        if len(set(kept)) != len(kept):
+            dupes = sorted({c for c in kept if kept.count(c) > 1})
+            problems.append(
+                f"{node_id}: 선택지 이름이 겹칩니다 ({', '.join(dupes)})."
+            )
+        if not str(node.params.get("prompt") or "").strip():
+            problems.append(f"{node_id}: 판단 요청 내용이 비어 있습니다.")
+        return problems
+
+    @staticmethod
+    def _point_problems(node_id: str, node: Node) -> List[str]:
+        """짚어야 할 자리를 찾는 노드는 범위가 반드시 있어야 한다.
+
+        화면 전체를 보내면 그림이 줄어들어 글씨가 뭉개지고, 짚은 자리도 그만큼
+        흔들린다. 좁혀야 정확해진다.
+        """
+        problems: List[str] = []
+        trouble = region_problem(node.params.get("region"))
+        if trouble:
+            problems.append(f"{node_id}: {trouble}")
+        if not str(node.params.get("prompt") or "").strip():
+            problems.append(f"{node_id}: 무엇을 찾을지 적어야 합니다.")
+        return problems
+
+    @property
+    def mcp_only(self) -> bool:
+        """판단을 구할 상대가 있어야 도는 매크로.
+
+        `validate` 에 넣지 않는다 — 그건 "고장난 매크로" 라는 뜻이 된다. 이것은
+        고장이 아니라 실행 경로가 다른 매크로다.
+        """
+        return any(n.type in AI_TYPES for n in self.nodes.values())
 
     def unreachable_ids(self) -> List[str]:
         """시작 노드에서 닿지 않는 노드. 실행을 막지는 않는다."""

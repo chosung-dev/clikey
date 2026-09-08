@@ -18,6 +18,9 @@ DEFAULTS: Dict[str, Any] = {
     # 실행 설정
     "step_delay": 0.03,
     "mouse_move_duration": 0.0,
+    # Claude Code 연동 (MCP). 기본은 꺼둔다 — 켜야 포트가 열린다.
+    "mcp_enabled": False,
+    "mcp_port": 3001,
 }
 
 

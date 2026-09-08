@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import hotkeys, library, prefs, runlog
+from core import hotkeys, library, prefs, runlock, runlog
 from core.persistence import load_app_state, save_app_state
 from core.graph import Graph
 from ui_qt import dialogs, theme as T
@@ -81,6 +81,9 @@ class Macro:
     path: Optional[object] = None
     broken: bool = False
     enabled: bool = True        # 꺼두면 단축키를 걸지 않는다
+    #: 판단 노드가 있어 Claude 를 거쳐야만 도는 매크로. 여기서는 실행할 수
+    #: 없고 단축키도 걸지 않는다 — 판단해 줄 상대가 이 화면에는 없다.
+    mcp_only: bool = False
 
 
 @dataclass
@@ -106,6 +109,7 @@ def load_macros() -> List[Macro]:
             path=entry.path,
             broken=entry.broken,
             enabled=entry.enabled,
+            mcp_only=entry.mcp_only,
             status=WAITING if entry.enabled else DISABLED,
         ))
     return macros
@@ -187,6 +191,9 @@ def status_pill(macro: Macro, ratio: float) -> QWidget:
     if macro.status == DISABLED:
         return Pill("사용 안 함", T.INK_3, T.CHIP_NEUTRAL,
                     icon="pause", icon_color=T.INK_4, ratio=ratio)
+    if macro.mcp_only:
+        # 고장이 아니라 실행 경로가 다른 것이므로 상태로 알린다
+        return Pill("Claude 전용", T.INK_2, T.CHIP_NEUTRAL, dot="hollow")
     return Pill("대기 중", T.INK_2, T.CHIP_NEUTRAL, dot="hollow")
 
 
@@ -1134,8 +1141,11 @@ class HomeWindow(FramelessWindow):
             self._update_status()
             return
 
+        # 판단 노드가 있는 매크로는 뺀다 — 키를 눌러도 판단할 상대가 없어
+        # 그 자리에서 멈춘다. 걸어두면 눌러도 아무 일이 없는 키가 된다.
         here = [m for m in self.macros
-                if m.folder == self.folder_key and m.enabled]
+                if m.folder == self.folder_key and m.enabled
+                and not m.mcp_only]
         entries = []
         for macro in here:
             if macro.shortcut:
@@ -1162,8 +1172,22 @@ class HomeWindow(FramelessWindow):
     def run_macro(self, macro: Macro) -> None:
         if not macro.enabled:
             return
+        if macro.mcp_only:
+            dialogs.alert(
+                self, "여기서는 실행할 수 없음",
+                f"‘{macro.name}’ 은 AI 판단 노드를 담고 있어\n"
+                "Claude Code 에서만 실행할 수 있습니다.")
+            return
         key = str(macro.path)
         if key in self.runners and self.runners[key].running:
+            return
+
+        # 실행권은 앱과 Claude 가 함께 본다. 둘이 동시에 돌면 마우스를 서로
+        # 뺏어 어느 쪽도 제대로 돌지 않는다.
+        busy = runlock.holder()
+        if busy is not None:
+            dialogs.alert(self, "지금은 실행할 수 없음",
+                          "‘" + busy + "’ 가 돌고 있습니다.")
             return
 
         try:
@@ -1179,6 +1203,9 @@ class HomeWindow(FramelessWindow):
                           + "\n• ".join(problems[:5]))
             return
 
+        if not runlock.acquire(macro.name):
+            return
+
         runner = MacroRunner(self)
         runner.finished.connect(lambda result, k=key: self._on_run_finished(k, result))
         self.runners[key] = runner
@@ -1189,6 +1216,7 @@ class HomeWindow(FramelessWindow):
                             step_delay=settings["step_delay"],
                             mouse_move_duration=settings["mouse_move_duration"],
                             bind_stop_hotkey=False):
+            runlock.release()
             return
 
         self.running_paths.add(key)
@@ -1201,6 +1229,7 @@ class HomeWindow(FramelessWindow):
             runner.stop()
 
     def _on_run_finished(self, key: str, result) -> None:
+        runlock.release()
         self.running_paths.discard(key)
         self.last_results[key] = result
         self._report_result(key, result)
