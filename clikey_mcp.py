@@ -89,11 +89,11 @@ class _Run:
         고르는 노드(ask)에는 선택지 하나를, 짚는 노드(ai_point)에는 영역 안의
         비율을 돌려준다. 어느 쪽을 물었는지는 kind 로 알린다.
         """
-        point = node.type == "ai_point"
+        kind = {"ai_point": "point", "ai_act": "act"}.get(node.type, "choice")
         self.question = {
-            "kind": "point" if point else "choice",
+            "kind": kind,
             "prompt": str(node.params.get("prompt") or ""),
-            "choices": [] if point else list(node.ports),
+            "choices": list(node.ports) if kind == "choice" else [],
             "shot": _screenshot(node.params.get("region")),
         }
         self.answer = None
@@ -201,7 +201,21 @@ class _Run:
                         "넘겨 결과를 받으세요. 사용자는 F9 로 멈출 수 있습니다.",
             })]
 
-        if question["kind"] == "point":
+        if question["kind"] == "act":
+            body = {
+                "ok": True,
+                "status": "needs_action",
+                "token": self.token,
+                "prompt": question["prompt"],
+                "text": "그림을 보고 할 일을 act_macro 로 보내세요. 좌표는 "
+                        "픽셀이 아니라 그림 안의 비율입니다 — 왼쪽 위가 0,0 "
+                        "이고 오른쪽 아래가 1,1 입니다. 이 범위 밖은 건드릴 수 "
+                        "없습니다. 결과를 보고 더 할 일이 있으면 more 를 true 로 "
+                        "두면 화면을 다시 보여줍니다. token 은 "
+                        + self.token + " 입니다.",
+                "actions": _ACTION_HELP,
+            }
+        elif question["kind"] == "point":
             body = {
                 "ok": True,
                 "status": "needs_point",
@@ -230,6 +244,41 @@ class _Run:
 
 
 # ---------------------------------------------------------------- 도우미
+
+
+#: act_macro 에 넣을 수 있는 동작들. 툴 설명만으로는 모양이 잘 안 잡혀
+#: 요청할 때마다 함께 보낸다.
+_ACTION_HELP = [
+    {"type": "click", "x": 0.5, "y": 0.5, "button": "left|right|middle"},
+    {"type": "move", "x": 0.5, "y": 0.5},
+    {"type": "drag", "x": 0.1, "y": 0.1, "to_x": 0.9, "to_y": 0.9,
+     "button": "left"},
+    {"type": "key", "key": "enter"},
+    {"type": "text", "text": "칠 글자"},
+    {"type": "wait", "seconds": 0.5},
+]
+
+
+#: 물어온 종류마다 답하는 툴이 다르다. 엉뚱한 툴을 부르면 어느 것을 불러야
+#: 하는지 알려준다 — 종류를 늘릴 때 이 표만 채우면 된다.
+_ANSWER_TOOL = {"choice": "resume_macro", "point": "point_macro",
+                "act": "act_macro"}
+
+
+def _wrong_tool(run, question) -> list:
+    """이 자리에서 부를 툴이 아니라고 알린다."""
+    body = {
+        "ok": False,
+        "status": "needs_" + {"choice": "decision"}.get(question["kind"],
+                                                        question["kind"]),
+        "token": run.token,
+        "text": "이 자리에서는 "
+                + _ANSWER_TOOL.get(question["kind"], "resume_macro")
+                + " 를 불러야 합니다.",
+    }
+    if question["kind"] == "choice":
+        body["choices"] = question["choices"]
+    return [_text(body)]
 
 
 def _text(body: Dict[str, Any]) -> TextContent:
@@ -410,10 +459,8 @@ def resume_macro(token: str, choice: str) -> list:
     if question is None:
         return [_text({"ok": True, "status": "running", "token": token,
                        "text": "지금은 판단을 기다리는 중이 아닙니다."})]
-    if question["kind"] == "point":
-        return [_text({"ok": False, "status": "needs_point", "token": token,
-                       "text": "이 자리는 고르는 것이 아니라 짚는 것입니다. "
-                               "point_macro 를 부르세요."})]
+    if question["kind"] != "choice":
+        return _wrong_tool(run, question)
 
     allowed = question["choices"]
     if choice not in allowed:
@@ -487,10 +534,7 @@ def point_macro(token: str, x: float = 0.0, y: float = 0.0,
         return [_text({"ok": True, "status": "running", "token": token,
                        "text": "지금은 짚을 자리를 기다리는 중이 아닙니다."})]
     if question["kind"] != "point":
-        return [_text({"ok": False, "status": "needs_decision", "token": token,
-                       "choices": question["choices"],
-                       "text": "이 자리는 짚는 것이 아니라 고르는 것입니다. "
-                               "resume_macro 를 부르세요."})]
+        return _wrong_tool(run, question)
 
     if found and not (0.0 <= float(x) <= 1.0 and 0.0 <= float(y) <= 1.0):
         return [_text({"ok": False, "status": "needs_point", "token": token,
@@ -499,6 +543,54 @@ def point_macro(token: str, x: float = 0.0, y: float = 0.0,
 
     run.surfaced.clear()
     run.answer = {"x": float(x), "y": float(y)} if found else None
+    run.answered.set()
+    run.wait()
+    return run.payload()
+
+
+@mcp.tool()
+def act_macro(token: str, actions: list, more: bool = False,
+              give_up: bool = False) -> list:
+    """‘AI 입력’ 요청에 할 일을 보내고 실행을 이어간다.
+
+    actions 는 차례로 할 동작의 목록이다. 좌표(x, y, to_x, to_y)는 픽셀이
+    아니라 받은 그림 안의 비율이다 — 왼쪽 위가 (0, 0), 오른쪽 아래가 (1, 1).
+    범위 밖을 가리키면 아무것도 하지 않고 그 자리에서 멈춘다.
+
+        {"type": "click", "x": 0.5, "y": 0.5, "button": "left"}
+        {"type": "move",  "x": 0.5, "y": 0.5}
+        {"type": "drag",  "x": 0.1, "y": 0.1, "to_x": 0.9, "to_y": 0.9}
+        {"type": "key",   "key": "enter"}
+        {"type": "text",  "text": "칠 글자"}
+        {"type": "wait",  "seconds": 0.5}
+
+    더 하고 나서 결과를 봐야 하면 more 를 true 로 둔다 — 동작을 마친 뒤 화면을
+    다시 찍어 보여준다. 할 수 없는 일이면 give_up 을 true 로 둔다.
+    """
+    _sweep()
+    run = _find(token)
+    if run is None:
+        return [_text({"ok": False, "status": "finished",
+                       "text": "만료되었거나 없는 요청입니다. "
+                               "run_macro 로 다시 실행하세요."})]
+    if run.done:
+        return run.payload()
+
+    question = run.question
+    if question is None:
+        return [_text({"ok": True, "status": "running", "token": token,
+                       "text": "지금은 할 일을 기다리는 중이 아닙니다."})]
+    if question["kind"] != "act":
+        return _wrong_tool(run, question)
+
+    if not give_up and not isinstance(actions, list):
+        return [_text({"ok": False, "status": "needs_action", "token": token,
+                       "actions": _ACTION_HELP,
+                       "text": "actions 는 동작의 목록이어야 합니다."})]
+
+    run.surfaced.clear()
+    run.answer = None if give_up else {"actions": list(actions),
+                                       "more": bool(more)}
     run.answered.set()
     run.wait()
     return run.payload()

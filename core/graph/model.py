@@ -36,6 +36,7 @@ NODE_PORTS: Dict[str, Tuple[str, ...]] = {
     # validate 의 "알 수 없는 노드 종류" 검사를 통과시키기 위한 자리다.
     "ask": (),
     "ai_point": ("찾음", "못 찾음"),
+    "ai_act": ("완료", "못 함"),
 }
 
 # 좌표를 찾아 뒤쪽 노드가 참조할 수 있게 남기는 노드들
@@ -46,7 +47,11 @@ CONDITION_TYPES = frozenset({"image_match", "rgb_match", "ai_point"})
 CHOICE_TYPES = frozenset({"ask"})
 
 #: 판단을 밖에 맡기는 노드들. 하나라도 있으면 Clikey 안에서는 돌 수 없다.
-AI_TYPES = frozenset({"ask", "ai_point"})
+AI_TYPES = frozenset({"ask", "ai_point", "ai_act"})
+
+#: 범위를 반드시 잡아야 하는 노드들. 그림이 줄면 짚는 자리가 흔들리고,
+#: 무엇보다 범위 밖은 건드리지 못하게 하는 울타리가 된다.
+FRAMED_TYPES = frozenset({"ai_point", "ai_act"})
 
 #: 화면 그림을 보낼 때 줄어들지 않는 한계 (Claude 4.7 이후 기준).
 #: 28x28 픽셀 한 칸이 비주얼 토큰 하나이고, 긴 변과 칸 수 둘 다 넘지 않아야
@@ -288,8 +293,8 @@ class Graph:
 
             if node.type in CHOICE_TYPES:
                 problems.extend(self._choice_problems(node_id, node))
-            if node.type == "ai_point":
-                problems.extend(self._point_problems(node_id, node))
+            if node.type in FRAMED_TYPES:
+                problems.extend(self._framed_problems(node_id, node))
             for key in ("pos",):
                 ref_ids = [
                     r for r in (_axis_ref(node.params.get(key, {}).get(axis))
@@ -347,18 +352,20 @@ class Graph:
         return problems
 
     @staticmethod
-    def _point_problems(node_id: str, node: Node) -> List[str]:
-        """짚어야 할 자리를 찾는 노드는 범위가 반드시 있어야 한다.
+    def _framed_problems(node_id: str, node: Node) -> List[str]:
+        """범위가 필요한 노드 검사.
 
-        화면 전체를 보내면 그림이 줄어들어 글씨가 뭉개지고, 짚은 자리도 그만큼
-        흔들린다. 좁혀야 정확해진다.
+        화면 전체를 보내면 그림이 줄어 글씨가 뭉개지고 짚는 자리도 흔들린다.
+        입력하는 노드에서는 한 가지 뜻이 더 있다 — 좌표를 범위 안의 비율로만
+        받으므로, 범위가 곧 손이 닿을 수 있는 울타리가 된다.
         """
         problems: List[str] = []
         trouble = region_problem(node.params.get("region"))
         if trouble:
             problems.append(f"{node_id}: {trouble}")
         if not str(node.params.get("prompt") or "").strip():
-            problems.append(f"{node_id}: 무엇을 찾을지 적어야 합니다.")
+            want = "무엇을 할지" if node.type == "ai_act" else "무엇을 찾을지"
+            problems.append(f"{node_id}: {want} 적어야 합니다.")
         return problems
 
     @property

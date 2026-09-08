@@ -39,7 +39,7 @@ CATEGORY = {
     "delay": "wait",
     "notify": "wait",
     "image_match": "condition", "rgb_match": "condition",
-    "ask": "ai", "ai_point": "ai",
+    "ask": "ai", "ai_point": "ai", "ai_act": "ai",
     "loop": "loop",
 }
 
@@ -54,7 +54,7 @@ LABEL = {
     "delay": "대기",
     "notify": "알림",
     "image_match": "이미지 검색", "rgb_match": "색상 검색",
-    "ask": "AI 판단", "ai_point": "AI 위치 찾기",
+    "ask": "AI 판단", "ai_point": "AI 위치 찾기", "ai_act": "AI 입력",
     "loop": "반복",
 }
 
@@ -509,7 +509,7 @@ def summarize(node) -> str:
     if node.type == "rgb_match":
         color = p.get("color")
         return f"RGB{tuple(color)}" if color else ""
-    if node.type in ("ask", "ai_point"):
+    if node.type in ("ask", "ai_point", "ai_act"):
         return str(p.get("prompt", ""))
     if node.type == "loop":
         limit = int(p.get("max", 0) or 0)
@@ -685,6 +685,7 @@ def _install_back_edge_routing() -> None:
 PORT_COLORS = {
     "false": T.INK_3,
     "못 찾음": T.INK_3,
+    "못 함": T.INK_3,
 }
 
 

@@ -638,6 +638,185 @@ def test_point_graph_survives_a_roundtrip():
     assert restored.mcp_only is True
 
 
+# ---------------------------------------------------------------- ai_act
+
+
+class FakeHand:
+    """진짜 마우스·키보드 대신 무엇을 시켰는지 적어두기만 한다."""
+
+    def __init__(self):
+        self.done = []
+
+    def mouse_move_only(self, x, y, d=0.0):
+        self.done.append(("move", x, y))
+
+    def mouse_move_click(self, x, y, b="left", d=0.0):
+        self.done.append(("click", x, y, b))
+
+    def mouse_down_at_current(self, b="left"):
+        self.done.append(("down", b))
+
+    def mouse_up_at_current(self, b="left"):
+        self.done.append(("up", b))
+
+    def press_and_release(self, key):
+        self.done.append(("key", key))
+
+    def write(self, text):
+        self.done.append(("text", text))
+
+
+def act_graph(region=(100, 100, 500, 400), rounds=4):
+    g = Graph()
+    g.add_node("start", node_id="s")
+    g.add_node("ai_act", {"prompt": "풀어줘",
+                          "region": list(region) if region else None,
+                          "rounds": rounds}, node_id="k")
+    g.connect("s", "k")
+    g.add_node("delay", {"ms": 0}, node_id="ok")
+    g.add_node("delay", {"ms": 0}, node_id="no")
+    g.connect("k", "ok", port="완료")
+    g.connect("k", "no", port="못 함")
+    return g
+
+
+def act_run(turns, region=(100, 100, 500, 400), rounds=4):
+    """가짜 손을 끼우고 돌린다. (결과, 시킨 일, 지나간 노드)."""
+    import types as _types
+
+    from core.graph import engine as _engine
+
+    hand = FakeHand()
+    saved = (_engine._mouse, _engine._keyboard,
+             sys.modules.get("core.keyboard_hotkey"))
+    _engine._mouse = hand
+    _engine._keyboard = hand
+    sys.modules["core.keyboard_hotkey"] = _types.SimpleNamespace(
+        normalize_key_for_keyboard=lambda k: k.lower().strip() or "",
+        _get_keyboard=lambda: hand)
+    try:
+        answers = iter(turns)
+        visited = []
+        ex = GraphExecutor(act_graph(region, rounds),
+                           ask=lambda n: next(answers, None),
+                           on_node=visited.append)
+        return ex.run(), hand.done, visited
+    finally:
+        _engine._mouse, _engine._keyboard = saved[0], saved[1]
+        if saved[2] is not None:
+            sys.modules["core.keyboard_hotkey"] = saved[2]
+        else:
+            sys.modules.pop("core.keyboard_hotkey", None)
+
+
+def test_act_node_has_two_fixed_ports():
+    assert act_graph().nodes["k"].ports == ("완료", "못 함")
+    assert act_graph().mcp_only is True
+
+
+def test_act_turns_fractions_into_screen_coordinates():
+    # 범위 (100,100)-(500,400) 이므로 400 x 300
+    result, done, _ = act_run([{"actions": [
+        {"type": "click", "x": 0.0, "y": 0.0},
+        {"type": "click", "x": 1.0, "y": 1.0},
+        {"type": "move", "x": 0.5, "y": 0.5},
+    ]}])
+    assert result.reason == StopReason.COMPLETED
+    assert done == [("click", 100, 100, "left"),
+                    ("click", 500, 400, "left"),
+                    ("move", 300, 250)], done
+
+
+def test_act_drag_presses_moves_and_releases():
+    _, done, _ = act_run([{"actions": [
+        {"type": "drag", "x": 0.0, "y": 0.0, "to_x": 1.0, "to_y": 1.0},
+    ]}])
+    assert done == [("move", 100, 100), ("down", "left"),
+                    ("move", 500, 400), ("up", "left")], done
+
+
+def test_act_types_and_presses_keys():
+    _, done, _ = act_run([{"actions": [
+        {"type": "key", "key": "Enter"},
+        {"type": "text", "text": "안녕"},
+    ]}])
+    assert done == [("key", "enter"), ("text", "안녕")], done
+
+
+def test_act_cannot_reach_outside_its_frame():
+    """범위가 울타리다 — 밖을 가리키면 아무것도 하지 않는다."""
+    for bad in ({"type": "click", "x": 1.2, "y": 0.5},
+                {"type": "click", "x": -0.01, "y": 0.5},
+                {"type": "click", "x": 300, "y": 200}):     # 픽셀로 준 경우
+        result, done, _ = act_run([{"actions": [bad]}])
+        assert result.reason == StopReason.BAD_DECISION, bad
+        assert done == [], (bad, done)
+
+
+def test_act_refuses_actions_it_does_not_know():
+    for bad in ({"type": "screenshot"}, {"type": "run", "cmd": "calc"},
+                "클릭해줘"):
+        result, done, _ = act_run([{"actions": [bad]}])
+        assert result.reason == StopReason.BAD_DECISION, bad
+        assert done == []
+
+
+def test_act_stops_partway_when_one_action_is_bad():
+    """앞의 것은 이미 했더라도 나쁜 것을 만나면 거기서 멈춘다."""
+    result, done, _ = act_run([{"actions": [
+        {"type": "key", "key": "a"},
+        {"type": "click", "x": 9.0, "y": 0.5},
+        {"type": "key", "key": "b"},
+    ]}])
+    assert result.reason == StopReason.BAD_DECISION
+    assert done == [("key", "a")], done
+
+
+def test_act_can_look_again_between_rounds():
+    result, done, _ = act_run([
+        {"actions": [{"type": "key", "key": "a"}], "more": True},
+        {"actions": [{"type": "key", "key": "b"}], "more": True},
+        {"actions": [{"type": "key", "key": "c"}]},
+    ])
+    assert result.reason == StopReason.COMPLETED
+    assert done == [("key", "a"), ("key", "b"), ("key", "c")], done
+
+
+def test_act_stops_after_the_rounds_it_was_given():
+    turns = [{"actions": [{"type": "key", "key": "a"}], "more": True}] * 20
+    result, done, _ = act_run(turns, rounds=3)
+    assert result.reason == StopReason.COMPLETED
+    assert len(done) == 3, done
+
+
+def test_act_branches_when_it_gives_up():
+    _, _, visited = act_run([None])
+    assert visited == ["s", "k", "no"], visited
+
+
+def test_act_without_a_decider_stops_distinctly():
+    assert GraphExecutor(act_graph()).run().reason == StopReason.NO_DECIDER
+
+
+def test_act_refuses_a_flood_of_actions():
+    many = [{"type": "key", "key": "a"}] * (GraphExecutor.MAX_ACTIONS + 1)
+    result, done, _ = act_run([{"actions": many}])
+    assert result.reason == StopReason.BAD_DECISION
+    assert done == []
+
+
+def test_act_requires_a_framed_region():
+    assert any("범위를 지정" in p for p in act_graph(region=None).validate())
+    assert any("토큰" in p for p in act_graph(region=(0, 0, 2000, 2000)).validate())
+    assert act_graph().validate() == []
+
+
+def test_act_requires_a_prompt():
+    g = act_graph()
+    g.nodes["k"].params["prompt"] = "  "
+    assert any("무엇을 할지" in p for p in g.validate())
+
+
 # ----------------------------------------------------------------
 
 def main():

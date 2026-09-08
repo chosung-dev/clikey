@@ -348,6 +348,137 @@ class GraphExecutor:
                                 round(y1 + spot[1] * (y2 - y1)))
         return "찾음"
 
+    #: 한 번 들를 때 시킬 수 있는 동작 수의 위쪽 한계. 노드에 적힌 값이
+    #: 이보다 크면 이쪽으로 깎는다 — 되돌릴 수 없는 입력이라 끝이 있어야 한다.
+    MAX_ACTIONS = 200
+
+    def _do_ai_act(self, node: Node) -> Optional[str]:
+        """화면을 보여주고 받은 동작을 그대로 해준다.
+
+        좌표는 범위 안의 비율로만 받는다. 그래서 이 노드가 손댈 수 있는 곳은
+        사용자가 잡아둔 범위 안뿐이다 — 범위가 곧 울타리다.
+
+        한 번 하고 끝내지 않고, 더 보겠다고 하면 다시 찍어 보여준다. 눌러 보고
+        결과를 확인해야 다음을 정할 수 있는 일이 많다. 다만 무한정 오갈 수는
+        없어 노드에 적힌 횟수까지만 돈다.
+        """
+        if self.ask is None:
+            self._halt = StopReason.NO_DECIDER
+            return None
+
+        region = node.params.get("region")
+        if not (isinstance(region, (list, tuple)) and len(region) == 4):
+            self._halt = StopReason.BAD_DECISION
+            return None
+
+        rounds = max(1, min(int(node.params.get("rounds", 5) or 5), 50))
+        for _ in range(rounds):
+            waiting_from = time.perf_counter()
+            try:
+                answer = self.ask(node)
+            finally:
+                self._waited += time.perf_counter() - waiting_from
+
+            if self.should_stop():
+                self._halt = StopReason.STOPPED
+                return None
+            if answer is None:
+                return "못 함"          # 못 하겠다는 것도 갈래다
+
+            if not isinstance(answer, dict):
+                self._halt = StopReason.BAD_DECISION
+                return None
+
+            actions = answer.get("actions") or []
+            if len(actions) > self.MAX_ACTIONS:
+                self._halt = StopReason.BAD_DECISION
+                return None
+
+            done = self._run_actions(actions, region)
+            if done is not None:
+                self._halt = done
+                return None
+            if not answer.get("more"):
+                return "완료"
+
+        return "완료"          # 오갈 수 있는 횟수를 다 썼다
+
+    def _run_actions(self, actions, region) -> Optional[str]:
+        """받은 동작을 차례로 한다. 문제가 있으면 종료 사유를 돌려준다."""
+        x1, y1, x2, y2 = (int(v) for v in region)
+        width, height = x2 - x1, y2 - y1
+
+        def spot(action, prefix=""):
+            pair = _as_fraction((action.get(prefix + "x"),
+                                 action.get(prefix + "y")))
+            if pair is None:
+                return None
+            return round(x1 + pair[0] * width), round(y1 + pair[1] * height)
+
+        mouse = _get_mouse()
+        for action in actions:
+            if self.should_stop():
+                return StopReason.STOPPED
+            if not isinstance(action, dict):
+                return StopReason.BAD_DECISION
+
+            kind = str(action.get("type") or "")
+            button = str(action.get("button") or "left")
+
+            if kind in ("click", "move", "drag"):
+                start = spot(action)
+                if start is None:
+                    return StopReason.BAD_DECISION
+                if kind == "move":
+                    mouse.mouse_move_only(*start, self.mouse_move_duration)
+                elif kind == "click":
+                    mouse.mouse_move_click(*start, button,
+                                           self.mouse_move_duration)
+                else:
+                    end = spot(action, "to_")
+                    if end is None:
+                        return StopReason.BAD_DECISION
+                    mouse.mouse_move_only(*start, self.mouse_move_duration)
+                    mouse.mouse_down_at_current(button)
+                    mouse.mouse_move_only(*end, max(self.mouse_move_duration,
+                                                    0.12))
+                    mouse.mouse_up_at_current(button)
+
+            elif kind == "key":
+                if not self._send_key(str(action.get("key") or "")):
+                    return StopReason.BAD_DECISION
+
+            elif kind == "text":
+                try:
+                    _get_keyboard().write(str(action.get("text") or ""))
+                except Exception:
+                    return StopReason.BAD_DECISION
+
+            elif kind == "wait":
+                try:
+                    seconds = min(max(float(action.get("seconds", 0)), 0.0), 10.0)
+                except (TypeError, ValueError):
+                    return StopReason.BAD_DECISION
+                if not self._interruptible_sleep(seconds):
+                    return StopReason.STOPPED
+
+            else:
+                return StopReason.BAD_DECISION
+        return None
+
+    @staticmethod
+    def _send_key(key: str) -> bool:
+        from core.keyboard_hotkey import normalize_key_for_keyboard
+
+        name = normalize_key_for_keyboard(key)
+        if not name:
+            return False
+        try:
+            _get_keyboard().press_and_release(name)
+        except Exception:
+            return False
+        return True
+
     def _do_notify(self, node: Node) -> str:
         if self.notify is not None:
             self.notify(

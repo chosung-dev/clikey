@@ -847,8 +847,16 @@ class RegionField(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
         self.pick_btn = QPushButton("영역 지정")
-        self.clear_btn = QPushButton("화면 전체로")
-        for btn, slot in ((self.pick_btn, self._pick), (self.clear_btn, self._clear)):
+        buttons = [(self.pick_btn, self._pick)]
+
+        # 범위가 반드시 있어야 하는 노드에서는 '화면 전체로' 를 두지 않는다.
+        # 눌러도 되지 않는 버튼을 남겨두면 왜 막혔는지 묻게 된다.
+        self.clear_btn = None
+        if not self.budget:
+            self.clear_btn = QPushButton("화면 전체로")
+            buttons.append((self.clear_btn, self._clear))
+
+        for btn, slot in buttons:
             btn.setObjectName("GhostBtn")
             btn.setFixedHeight(30)
             btn.setCursor(Qt.PointingHandCursor)
@@ -873,8 +881,8 @@ class RegionField(QWidget):
             self.label.setText(text)
             self.label.setStyleSheet(
                 f"font-family: '{T.mono_stack()}'; font-size: 12px;")
-        # 범위가 있어야만 도는 노드에서는 '화면 전체로' 가 곧 고장이다
-        self.clear_btn.setEnabled(self.region is not None and not self.budget)
+        if self.clear_btn is not None:
+            self.clear_btn.setEnabled(self.region is not None)
 
     def _pick(self) -> None:
         from ui_qt.picker import pick_region
@@ -972,10 +980,12 @@ class ListField(QWidget):
             lambda e=edit, i=index: self._set(i, e.text()))
         lay.addWidget(edit, 1)
 
+        # clicked 는 checked 불리언을 함께 보낸다. 그것을 받아낼 자리를 앞에
+        # 두지 않으면 줄 번호 자리에 False 가 들어와 늘 첫 줄이 움직인다.
         for glyph, tip, slot in (
-            ("↑", "위로", lambda i=index: self._move(i, -1)),
-            ("↓", "아래로", lambda i=index: self._move(i, 1)),
-            ("−", "지우기", lambda i=index: self._remove(i)),
+            ("↑", "위로", lambda _=False, i=index: self._move(i, -1)),
+            ("↓", "아래로", lambda _=False, i=index: self._move(i, 1)),
+            ("−", "지우기", lambda _=False, i=index: self._remove(i)),
         ):
             btn = QPushButton(glyph)
             btn.setObjectName("GhostBtn")
@@ -1000,11 +1010,32 @@ class ListField(QWidget):
             self._emit()
 
     def _add(self) -> None:
+        """줄을 하나 늘린다. 빈 칸이 아니라 이름을 붙여서 늘린다.
+
+        빈 이름은 포트가 되지 못한다. 빈 칸으로 두면 이름을 다 치고 칸을
+        벗어나야 포트가 생겨, 누른 것에 아무 반응이 없어 보인다. 지우기는
+        바로 반영되는데 늘리기만 늦어 더 어긋나 보인다.
+        """
         if len(self.values) >= self.maximum:
             return
-        self.values.append("")
+        self.values.append(self._fresh_name())
         self._rebuild()
         self._emit()
+        # 새로 생긴 칸에 바로 칠 수 있게 — 이름은 골라둔 채로 둔다
+        rows = self.rows.itemAt(self.rows.count() - 1)
+        box = rows.widget().findChild(QLineEdit) if rows else None
+        if box is not None:
+            box.setFocus()
+            box.selectAll()
+
+    def _fresh_name(self) -> str:
+        """겹치지 않는 기본 이름. 겹치면 포트가 하나로 합쳐진다."""
+        taken = {v.strip() for v in self.values}
+        for n in range(len(self.values) + 1, self.maximum + 2):
+            name = f"선택지 {n}"
+            if name not in taken:
+                return name
+        return ""
 
     def _remove(self, index: int) -> None:
         if len(self.values) <= self.minimum:
@@ -1093,6 +1124,16 @@ FIELDS: Dict[str, List[Spec]] = {
          "반드시 지정해야 합니다. 넓으면 그림이 줄어 짚는 자리가 흔들리므로 "
          "그대로 전달되는 크기까지만 고를 수 있습니다."),
     ],
+    "ai_act": [
+        ("prompt", "무엇을 할지", "text",
+         {"placeholder": "예: 문제를 풀고 제출까지 눌러줘"},
+         "Claude 에게 그대로 전달됩니다"),
+        ("region", "손댈 화면 범위", "region", {"budget": True},
+         "반드시 지정해야 합니다. 이 범위 밖은 건드릴 수 없습니다 — "
+         "좌표를 범위 안의 비율로만 받기 때문입니다."),
+        ("rounds", "주고받을 횟수", "number", {"minimum": 1, "maximum": 50},
+         "한 번 하고 화면을 다시 보는 것을 몇 번까지 되풀이할지"),
+    ],
     "loop": [
         ("max", "반복 횟수", "number", {"minimum": 0, "maximum": 1000000},
          "몸통을 이만큼 되풀이한 뒤 완료로 나갑니다. 0 이면 중지할 때까지."),
@@ -1127,6 +1168,7 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     "notify": {"title": "Clikey", "message": "", "seconds": 5, "sound": True},
     "ask": {"prompt": "", "choices": ["1번", "2번", "3번", "4번"], "region": None},
     "ai_point": {"prompt": "", "region": None},
+    "ai_act": {"prompt": "", "region": None, "rounds": 5},
     "loop": {"max": 10},
     "rgb_match": {"pos": {"x": 0, "y": 0}, "color": [255, 255, 255], "tolerance": 0},
     "image_match": {"template": "", "region": None, "threshold": 0.9},

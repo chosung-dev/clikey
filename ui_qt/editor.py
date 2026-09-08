@@ -626,22 +626,35 @@ class EditorWindow(FramelessWindow):
     def _delete_under_cursor(self, spot) -> None:
         """가운데 버튼 아래 있는 것을 지운다.
 
-        먼저 고르고 누르게 하면 손이 두 번 간다. 커서 밑에 노드나 선이 있으면
-        그것을 고른 것으로 치고, 빈 곳이면 이미 골라둔 것을 지운다.
+        먼저 고르고 누르게 하면 손이 두 번 간다. 커서 밑에 있는 것을 고른
+        것으로 치고 바로 지운다.
+
+        빈 곳에서는 아무것도 지우지 않고 골라둔 것을 놓아준다. 골라둔 것을
+        대신 지우면, 저만치 떨어진 곳을 눌렀는데 화면 밖의 노드가 사라진다.
         """
         viewer = self.ng.viewer()
         node, pipe = node_view.item_at(viewer, viewer.mapToScene(spot))
+        if node is None and pipe is None:
+            self._clear_selection()
+            return
 
-        if node is not None or pipe is not None:
-            self.ng.clear_selection()
-            for old in viewer.selected_pipes():
-                old.setSelected(False)
-            if node is not None:
-                node.selected = True
-            else:
-                pipe.setSelected(True)
+        self.ng.clear_selection()
+        for old in viewer.selected_pipes():
+            old.setSelected(False)
+        if node is not None:
+            node.selected = True
+        else:
+            pipe.setSelected(True)
 
         self.delete_selected()
+
+    def _clear_selection(self) -> None:
+        """노드와 선을 모두 놓아주고 속성 패널도 비운다."""
+        viewer = self.ng.viewer()
+        self.ng.clear_selection()
+        for pipe in viewer.selected_pipes():
+            pipe.setSelected(False)
+        self.inspector.show_node(None, None)
 
     def showEvent(self, event):
         super().showEvent(event)

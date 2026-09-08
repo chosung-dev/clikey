@@ -98,7 +98,7 @@ PALETTE_GROUPS: List[Tuple[str, List[str]]] = [
     ("입력", ["mouse_click", "mouse_move", "mouse_down", "mouse_up",
               "key_press", "key_down", "key_up"]),
     ("조건", ["rgb_match", "image_match"]),
-    ("AI", ["ask", "ai_point"]),
+    ("AI", ["ask", "ai_point", "ai_act"]),
     ("기능", ["delay", "notify", "loop"]),
 ]
 
@@ -368,7 +368,7 @@ def field(label_text: str, value_widget: QWidget, hint: str = "") -> QWidget:
 
 def port_glyph(port: str, ratio: float) -> QWidget:
     """있음/없음을 캔버스와 같은 기호로."""
-    truthy = port in ("true", "loop", "찾음")
+    truthy = port in ("true", "loop", "찾음", "완료")
     color = T.RUN if truthy else T.INK_4
     glyph = "check" if truthy else "cross"
 
@@ -588,7 +588,7 @@ class Inspector(QWidget):
             if len(node.ports) > 1:
                 rl.addWidget(port_glyph(port, self.ratio))
                 name = QLabel(PORT_NAME.get(port, port))
-                truthy = port in ("true", "loop", "찾음")
+                truthy = port in ("true", "loop", "찾음", "완료")
                 name.setStyleSheet(
                     f"font-size: 11px; font-weight: 500;"
                     f"color: {T.RUN if truthy else T.INK_3};"
