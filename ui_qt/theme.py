@@ -62,9 +62,9 @@ ROW_H = 62
 
 # 표 컬럼 폭 (이름은 남는 공간을 차지)
 COL_SHORTCUT = 148     # 실행 / 종료 두 개가 들어간다
-COL_NODES = 96
-COL_LASTRUN = 132
-COL_STATUS = 148
+COL_NODES = 40
+COL_LASTRUN = 70       # '2026-09-07' 이 들어가는 폭
+COL_STATUS = 112       # '실행 중 · 12/50' 알약이 들어가는 폭
 COL_GAP = 16
 PAGE_PAD = 24
 
@@ -382,6 +382,18 @@ def stylesheet() -> str:
     QPushButton#TidyBtn:hover {{ border-color: {RULE_4}; background: {PANEL}; }}
     QPushButton#TidyBtn:disabled {{ color: {INK_4}; border-color: {RULE_1}; font-weight: 400; }}
 
+    /* 열 사이 · 두 줄로 나뉜 단축키 사이에 세우는 실낱 같은 선 */
+    /* 끌고 있는 행이 놓일 자리. 파선으로 '여기에 들어간다' 만 말한다 */
+    QWidget#DropSlot {{
+        background: {ACCENT_BG}; border: 1px dashed {ACCENT};
+        border-radius: {RADIUS_CTRL}px;
+    }}
+
+    QFrame#ColRule {{ background: {RULE_2}; border: none; }}
+    /* 행 쪽은 머리글과 열을 맞추기 위한 자리일 뿐, 선을 긋지 않는다 */
+    QFrame#ColSpacer {{ background: transparent; border: none; }}
+    QFrame#KeyRule {{ background: {RULE_3}; border: none; }}
+
     QPushButton#TinyBtn {{ border: none; border-radius: 4px; background: transparent; }}
     QPushButton#TinyBtn:hover {{ background: {RULE_2}; }}
 
@@ -448,7 +460,18 @@ def stylesheet() -> str:
 
     QFrame#Row      {{ background: {BG}; border-bottom: 1px solid {RULE_1}; }}
     QFrame#Row:hover{{ background: {PANEL}; }}
+    QFrame#FolderRow      {{ background: {BG}; border-bottom: 1px solid {RULE_1}; }}
+    QFrame#FolderRow:hover{{ background: {PANEL}; }}
     QFrame#RowOn    {{ background: #F7F9FE; border-bottom: 1px solid {RULE_1}; }}
+
+    /* 들어 올린 행. 목록에서 떠 있다는 것이 보이게 테두리를 두른다.
+       명시도가 :hover 와 같으므로 그 뒤에 적어야 이긴다. */
+    QFrame#Row[dragging="true"], QFrame#RowOn[dragging="true"],
+    QFrame#FolderRow[dragging="true"], QFrame#NavItem[dragging="true"],
+    QFrame#NavItemOn[dragging="true"] {{
+        background: {BG}; border: 1px solid {ACCENT};
+        border-radius: {RADIUS_CTRL}px;
+    }}
     QFrame#HeadRow  {{ border-top: 1px solid {RULE_2}; border-bottom: 1px solid {RULE_1}; }}
 
     QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; border: none; }}

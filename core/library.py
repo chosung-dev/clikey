@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -386,6 +387,36 @@ def move_macro(path: Path, folder: str, root: Optional[Path] = None) -> Path:
     return target
 
 
+@contextmanager
+def keep_modified(path: Path):
+    """고쳐 써도 목록에서 자리를 지키게 한다.
+
+    목록은 수정 시각 내림차순이다(`scan`). 단축키나 사용 여부처럼 곁가지만
+    바꿔도 그 매크로가 맨 위로 튀어 올라, 방금 보던 줄이 눈앞에서 사라진다.
+    매크로 자체를 손본 것이 아니므로 시각을 되돌려 있던 자리에 둔다.
+
+    편집기에서 저장한 것은 진짜 수정이므로 여기를 거치지 않는다 — 그때는
+    맨 위로 올라오는 편이 맞다.
+    """
+    path = Path(path)          # 문자열 경로로 불러도 되게
+    try:
+        before = path.stat()
+    except OSError:
+        before = None
+
+    yield
+
+    if before is None:
+        return
+    try:
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    except OSError:
+        return
+    # 시각을 되돌리면 크기까지 같을 때(f8 -> f9) 읽어둔 값을 그대로 쓴다.
+    # 캐시가 보는 표식이 둘뿐이라 여기서 직접 지워야 한다.
+    _NODE_COUNT_CACHE.pop(str(path), None)
+
+
 def set_enabled(path: Path, enabled: bool) -> None:
     """매크로 파일의 사용 여부만 바꾼다. 나머지 내용은 그대로 둔다."""
     with open(path, "r", encoding="utf-8") as f:
@@ -394,8 +425,35 @@ def set_enabled(path: Path, enabled: bool) -> None:
         raise ValueError("매크로 파일 형식이 아닙니다.")
 
     data["enabled"] = bool(enabled)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with keep_modified(path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def set_hotkeys(path: Path, start_key: str, stop_key: str) -> None:
+    """실행·종료 단축키만 바꾼다. 나머지 내용은 그대로 둔다.
+
+    단축키는 시작·종료 노드의 `hotkey` 에 적혀 있다. 종류마다 처음 하나에만
+    적는 것은 `read_summary` 가 읽는 규칙과 같다 — 읽은 자리에 되돌려 써야
+    목록에 보이던 값과 어긋나지 않는다.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not isinstance(data.get("nodes"), dict):
+        raise ValueError("매크로 파일 형식이 아닙니다.")
+
+    wanted = {"start": str(start_key or ""), "stop": str(stop_key or "")}
+    for node in data["nodes"].values():
+        if isinstance(node, dict) and node.get("type") in wanted:
+            node["hotkey"] = wanted.pop(node["type"])
+        if not wanted:
+            break
+    if len(wanted) == 2:
+        raise ValueError("시작·종료 노드가 없어 단축키를 걸 수 없습니다.")
+
+    with keep_modified(path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def delete_macro(path: Path, root: Optional[Path] = None) -> None:
