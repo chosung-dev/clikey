@@ -10,10 +10,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from PySide6.QtCore import QEvent, QRect, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -26,7 +27,16 @@ from PySide6.QtWidgets import (
 )
 
 from core import hotkeys, library, prefs, runlock, runlog
-from core.persistence import load_app_state, save_app_state
+from core.persistence import (
+    load_app_state,
+    load_folder_order,
+    load_macro_order,
+    move_macro_order,
+    rename_in_folder_order,
+    save_app_state,
+    save_folder_order,
+    save_macro_order,
+)
 from core.graph import Graph
 from ui_qt import dialogs, theme as T
 from ui_qt.frameless import FramelessWindow
@@ -115,11 +125,39 @@ def load_macros() -> List[Macro]:
     return macros
 
 
+def in_order(items, names: List[str], key=lambda x: x):
+    """손으로 정해둔 차례대로 세운다.
+
+    차례에 없는 것(그 뒤에 새로 생긴 것)은 앞에 둔다 — 원래 목록이 최근에
+    고친 것부터였으므로 새것이 위에 오는 편이 덜 낯설다.
+    """
+    if not names:
+        return list(items)
+    rank = {name: i for i, name in enumerate(names)}
+    known = sorted((x for x in items if key(x) in rank), key=lambda x: rank[key(x)])
+    fresh = [x for x in items if key(x) not in rank]
+    return fresh + known
+
+
+def settle(items, names: List[str], key, remember) -> list:
+    """차례대로 세우고, 아직 적히지 않은 것이 있으면 그대로 굳혀 적어둔다.
+
+    한 번 굳혀두면 매크로를 고쳐 저장하든(수정 시각이 바뀐다) 무엇을 하든
+    자리가 흔들리지 않는다. 사용자가 놓아둔 그대로 남는 것이 목적이다.
+    """
+    lined = in_order(items, names, key)
+    if lined and (not names or any(key(x) not in names for x in lined)):
+        remember([key(x) for x in lined])
+    return lined
+
+
 def load_folders(macros: List[Macro]) -> List[Folder]:
     counts = {}
     for m in macros:
         counts[m.folder] = counts.get(m.folder, 0) + 1
-    return [Folder(name, counts.get(name, 0)) for name in library.folder_names()]
+    names = settle(library.folder_names(), load_folder_order(),
+                   key=lambda n: n, remember=save_folder_order)
+    return [Folder(name, counts.get(name, 0)) for name in names]
 
 
 # ---------------------------------------------------------------- 작은 조각
@@ -313,15 +351,237 @@ class CaptionButton(QPushButton):
         self._paint(hovered=False)
 
 
-class NavItem(QFrame):
+HOLD_MS = 110            # 이만큼 누르고 있으면 끌기가 시작된다
+DRAG_REACH = 10          # 기다리지 않고 위아래로 이만큼 끌면 바로 집어 든다
+EDGE_REACH = 30          # 가장자리에 이만큼 다가가면 목록이 따라 흐른다
+EDGE_STEP = 14
+
+
+class DragReorder:
+    """항목을 눌러 끌어 차례를 바꾼다. 목록에도 사이드바에도 같이 쓴다.
+
+    끄는 항목은 레이아웃에서 빼내 위에 띄우고, 있던 자리에는 같은 높이의 빈
+    자리를 넣는다. 그 빈 자리가 손을 떼면 놓일 곳이므로, 어디로 가는지 끄는
+    내내 눈에 보인다.
+    """
+
+    def __init__(self, host, box, scroll=None, keep_top=0,
+                 prepare=None, on_drop=None):
+        #: host   — 떠 있는 항목을 얹을 위젯. 좌표도 여기를 기준으로 잰다
+        #: box    — 항목들이 든 세로 레이아웃
+        #: scroll — 가장자리에서 흘려보낼 스크롤 영역 (없으면 안 흘린다)
+        #: keep_top — 앞쪽 몇 개는 자리를 지킨다 ('전체' 처럼 붙박이인 것)
+        self.host = host
+        self.box = box
+        self.scroll = scroll
+        self.keep_top = keep_top
+        self.prepare = prepare
+        self.on_drop = on_drop
+
+        self.item = None         # 지금 끌고 있는 것
+        self.slot = None         # 놓일 자리를 보여주는 빈 칸
+        self.grab_dy = 0         # 항목 안에서 잡은 지점
+        self.cursor_y = 0        # host 기준 — 가장자리 흘림에 쓴다
+        self.scroller = QTimer(host)
+        self.scroller.setInterval(16)
+        self.scroller.timeout.connect(self._drift)
+
+    @property
+    def active(self) -> bool:
+        return self.item is not None
+
+    # ------------------------------------------------------------ 시작 / 끝
+
+    def start(self, item, where) -> None:
+        if self.prepare:
+            self.prepare()       # 아직 안 만든 항목이 있으면 먼저 다 만든다
+        index = self.box.indexOf(item)
+        if index < 0 or index < self.keep_top:
+            return
+
+        self.item = item
+        self.grab_dy = item.mapFromGlobal(where).y()
+
+        self.slot = QWidget()
+        self.slot.setObjectName("DropSlot")
+        self.slot.setFixedHeight(item.height())
+        self.box.removeWidget(item)
+        self.box.insertWidget(index, self.slot)
+
+        item.setParent(self.host)
+        item.setFixedWidth(self._span())
+        shadow = QGraphicsDropShadowEffect(item)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(27, 30, 35, 70))
+        item.setGraphicsEffect(shadow)
+        item.setCursor(Qt.ClosedHandCursor)
+        self._mark(item, True)
+        item.raise_()
+        item.show()
+
+        self.move(where)
+
+    def move(self, where) -> None:
+        if not self.active:
+            return
+        self.cursor_y = self.host.mapFromGlobal(where).y()
+
+        top = self.cursor_y - self.grab_dy
+        top = max(-self.item.height() // 2,
+                  min(top, self.host.height() - self.item.height() // 2))
+        self.item.move(self._left(), top)
+        self._reslot()
+
+        if self.scroll is None:
+            return
+        near_edge = (self.cursor_y < EDGE_REACH
+                     or self.cursor_y > self.host.height() - EDGE_REACH)
+        if near_edge and not self.scroller.isActive():
+            self.scroller.start()
+        elif not near_edge:
+            self.scroller.stop()
+
+    def drop(self) -> None:
+        if not self.active:
+            return
+        self.scroller.stop()
+        item, slot = self.item, self.slot
+        self.item = self.slot = None
+
+        index = self.box.indexOf(slot)
+        self.box.removeWidget(slot)
+        slot.setParent(None)
+        slot.deleteLater()
+
+        item.setGraphicsEffect(None)
+        self._mark(item, False)
+        item.setCursor(Qt.PointingHandCursor)
+        item.setMinimumWidth(0)
+        item.setMaximumWidth(16777215)
+        item.setParent(None)
+        self.box.insertWidget(max(self.keep_top, index), item)
+        if self.on_drop:
+            self.on_drop()
+
+    def cancel(self) -> None:
+        """목록을 다시 그리는 등, 끌던 것을 그냥 접어야 할 때."""
+        if self.active:
+            self.drop()
+
+    @staticmethod
+    def _mark(item, on: bool) -> None:
+        """들어 올린 항목에 표를 낸다 — 그림자만으로는 티가 잘 안 난다."""
+        item.setProperty("dragging", on)
+        item.style().unpolish(item)
+        item.style().polish(item)
+
+    # ------------------------------------------------------------ 자리 계산
+
+    def _body(self):
+        return self.box.parentWidget()
+
+    def _left(self) -> int:
+        """띄운 항목의 왼쪽 끝. 레이아웃 여백만큼 안으로 들인다."""
+        return self._body().mapTo(self.host, QPoint(0, 0)).x()             + self.box.contentsMargins().left()
+
+    def _span(self) -> int:
+        margins = self.box.contentsMargins()
+        return max(1, self._body().width() - margins.left() - margins.right())
+
+    def _reslot(self) -> None:
+        """끌고 있는 항목의 한가운데를 기준으로 빈 자리를 옮긴다."""
+        body = self._body()
+        middle = body.mapFrom(
+            self.host, QPoint(0, self.item.y() + self.item.height() // 2)).y()
+
+        target = 0
+        for i in range(self.box.count()):
+            widget = self.box.itemAt(i).widget()
+            if widget is None or widget is self.slot:
+                continue
+            if widget.y() + widget.height() / 2 < middle:
+                target += 1
+
+        target = max(self.keep_top, target)
+        if self.box.indexOf(self.slot) != target:
+            self.box.removeWidget(self.slot)
+            self.box.insertWidget(target, self.slot)
+
+    def _drift(self) -> None:
+        """가장자리를 잡고 있으면 목록을 조금씩 흘려보낸다."""
+        if not self.active or self.scroll is None:
+            self.scroller.stop()
+            return
+        bar = self.scroll.verticalScrollBar()
+        if self.cursor_y < EDGE_REACH:
+            bar.setValue(bar.value() - EDGE_STEP)
+        elif self.cursor_y > self.host.height() - EDGE_REACH:
+            bar.setValue(bar.value() + EDGE_STEP)
+        self._reslot()
+
+
+class Reorderable:
+    """눌러 끌면 차례를 바꿀 수 있는 항목. 위젯 클래스와 함께 물려 쓴다.
+
+    누르자마자 위아래로 끌면 그 자리에서 집히고, 가만히 누르고만 있어도 잠깐
+    뒤에 집힌다. 끌어다 놓은 것은 누른 것이 아니므로, 그때는 원래 하던 일
+    (편집기 열기 · 폴더 고르기)을 하지 않는다.
+    """
+
+    def setup_drag(self, reorder) -> None:
+        self.reorder = reorder
+        self._press_at = None
+        self._dragging = False
+        self._hold = QTimer(self)
+        self._hold.setSingleShot(True)
+        self._hold.setInterval(HOLD_MS)
+        self._hold.timeout.connect(self._begin_drag)
+
+    def _begin_drag(self) -> None:
+        if self._press_at is None or self.reorder is None:
+            return
+        self._dragging = True
+        self.reorder.start(self, self._press_at)
+
+    def drag_press(self, event) -> None:
+        if event.button() == Qt.LeftButton and self.reorder is not None:
+            self._press_at = event.globalPosition().toPoint()
+            self._dragging = False
+            self._hold.start()
+
+    def drag_move(self, event) -> None:
+        where = event.globalPosition().toPoint()
+        if self._dragging:
+            self.reorder.move(where)
+        elif (self._press_at is not None
+                and abs(where.y() - self._press_at.y()) >= DRAG_REACH):
+            # 누른 채로 위아래로 끌기 시작했다면 기다릴 것 없이 집어 든다.
+            # 목록에서 위아래로 끄는 몸짓은 차례를 바꾸는 것 말고 없다.
+            self._hold.stop()
+            self._begin_drag()
+
+    def drag_release(self) -> bool:
+        """끌어다 놓았으면 True. 그때는 누른 것으로 치지 않는다."""
+        self._hold.stop()
+        self._press_at = None
+        if not self._dragging:
+            return False
+        self._dragging = False
+        self.reorder.drop()
+        return True
+
+
+class NavItem(Reorderable, QFrame):
     def __init__(self, icon: str, text: str, count: Optional[int] = None,
                  selected: bool = False, height: int = 34, ratio: float = 1.0,
-                 on_click=None, on_menu=None):
+                 on_click=None, on_menu=None, reorder=None):
         super().__init__()
         self.ratio = ratio
         self.icon_name = icon
         self.on_click = on_click
         self.on_menu = on_menu
+        self.setup_drag(reorder)
         self.setFixedHeight(height)
         self.setCursor(Qt.PointingHandCursor)
 
@@ -356,11 +616,26 @@ class NavItem(QFrame):
                 widget.style().polish(widget)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.on_click:
-            self.on_click()
+        self.drag_press(event)
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        self.drag_move(event)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        # 고르는 일은 손을 뗄 때 한다. 누르자마자 고르면 끌기 시작과 동시에
+        # 폴더가 바뀌면서 목록이 통째로 다시 그려진다.
+        if self.drag_release():
+            return
+        if (event.button() == Qt.LeftButton and self.on_click
+                and self.rect().contains(event.pos())):
+            self.on_click()
+        super().mouseReleaseEvent(event)
+
     def contextMenuEvent(self, event):
+        if self.drag_release():
+            return
         if self.on_menu:
             self.on_menu(event.globalPos())
 
@@ -368,13 +643,14 @@ class NavItem(QFrame):
 class Sidebar(QWidget):
     def __init__(self, folders: List[Folder], total: int, ratio: float,
                  on_select=None, on_menu=None, on_new_folder=None,
-                 on_settings=None):
+                 on_settings=None, on_reordered=None):
         super().__init__()
         self.ratio = ratio
         self.on_select = on_select
         self.on_menu = on_menu
         self.on_new_folder = on_new_folder
         self.on_settings = on_settings or (lambda: None)
+        self.on_reordered = on_reordered
         self.nav_items = {}
         self.setObjectName("Sidebar")
         self.setFixedWidth(T.SIDEBAR_W)
@@ -429,6 +705,10 @@ class Sidebar(QWidget):
         self.folder_lay.setContentsMargins(10, 0, 10, 0)
         self.folder_lay.setSpacing(1)
         root.addWidget(self.folder_box)
+        # '전체' 는 붙박이라 첫 자리를 지킨다. 사이드바는 스크롤이 없어
+        # 가장자리에서 흘려보낼 것도 없다.
+        self.reorder = DragReorder(self.folder_box, self.folder_lay,
+                                   keep_top=1, on_drop=self._remember_order)
         self.set_folders(folders, ALL_FOLDERS)
 
         root.addStretch(1)
@@ -443,6 +723,7 @@ class Sidebar(QWidget):
 
     def set_folders(self, folders: List[Folder], selected_key: str) -> None:
         """폴더가 바뀌었을 때 목록을 다시 만든다."""
+        self.reorder.cancel()      # 다시 만들기 전에 끌던 것을 내려놓는다
         while self.folder_lay.count():
             item = self.folder_lay.takeAt(0)
             widget = item.widget()
@@ -451,19 +732,34 @@ class Sidebar(QWidget):
                 widget.deleteLater()
         self.nav_items = {}
 
-        def add(key, icon, text, count, menu_name=None):
+        def add(key, icon, text, count, menu_name=None, movable=False):
             item = NavItem(
                 icon, text, count, selected=(key == selected_key), ratio=self.ratio,
                 on_click=lambda k=key: self._choose(k),
                 on_menu=(lambda pos, n=menu_name: self.on_menu(n, pos))
                 if (self.on_menu and menu_name) else None,
+                reorder=self.reorder if movable else None,
             )
             self.nav_items[key] = item
             self.folder_lay.addWidget(item)
 
         add(ALL_FOLDERS, "all", "전체", None)
         for f in folders:
-            add(f.name, f.icon, f.name, f.count, menu_name=f.name)
+            add(f.name, f.icon, f.name, f.count, menu_name=f.name, movable=True)
+
+    def _remember_order(self) -> None:
+        """지금 선 차례를 그대로 적어둔다. '전체' 는 폴더가 아니라 뺀다."""
+        names = []
+        for i in range(self.folder_lay.count()):
+            item = self.folder_lay.itemAt(i).widget()
+            if isinstance(item, NavItem):
+                key = next((k for k, v in self.nav_items.items() if v is item), None)
+                if key and key != ALL_FOLDERS:
+                    names.append(key)
+        if names:
+            save_folder_order(names)
+        if self.on_reordered:
+            self.on_reordered()
 
     def _choose(self, key: str) -> None:
         for name, item in self.nav_items.items():
@@ -570,14 +866,16 @@ class HeaderRow(QFrame):
             rule.setVisible(key in shown)
 
 
-class FolderRow(QFrame):
+class FolderRow(Reorderable, QFrame):
     """'전체' 화면에서 폴더 하나."""
 
-    def __init__(self, folder: Folder, ratio: float, on_open=None, on_menu=None):
+    def __init__(self, folder: Folder, ratio: float, on_open=None, on_menu=None,
+                 reorder=None):
         super().__init__()
         self.folder = folder
         self.on_open = on_open
         self.on_menu = on_menu
+        self.setup_drag(reorder)
         # 매크로 행과 달리 폴더 행은 통째로 눌러 들어가는 자리라, 행 전체가
         # 반응하는 편이 낫다. 그래서 이름을 따로 둔다.
         self.setObjectName("FolderRow")
@@ -616,13 +914,25 @@ class FolderRow(QFrame):
         for key, widget in self.cells.items():
             widget.setVisible(key in shown)
 
+    def mousePressEvent(self, event):
+        self.drag_press(event)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        self.drag_move(event)
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
+        if self.drag_release():
+            return                  # 끌어다 놓은 것이지 누른 것이 아니다
         if event.button() == Qt.LeftButton and self.rect().contains(event.pos()):
             if self.on_open:
                 self.on_open(self.folder.name)
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event):
+        if self.drag_release():
+            return
         if self.on_menu:
             self.on_menu(self.folder.name, event.globalPos())
 
@@ -738,8 +1048,9 @@ class ShortcutCell(QWidget):
         self._reflow()
 
 
-class MacroRow(QFrame):
-    def __init__(self, macro: Macro, ratio: float, on_open=None, on_menu=None):
+class MacroRow(Reorderable, QFrame):
+    def __init__(self, macro: Macro, ratio: float, on_open=None, on_menu=None,
+                 reorder=None):
         super().__init__()
         running = macro.status == RUNNING
         dimmed = macro.status == DISABLED
@@ -748,6 +1059,7 @@ class MacroRow(QFrame):
         self.ratio = ratio
         self.on_open = on_open
         self.on_menu = on_menu
+        self.setup_drag(reorder)
         self.setObjectName("RowOn" if running else "Row")
         self.setFixedHeight(T.ROW_H)
         self.setCursor(Qt.PointingHandCursor)
@@ -850,13 +1162,28 @@ class MacroRow(QFrame):
         lay.insertWidget(0, status_pill(self.macro, self.ratio), 0,
                          Qt.AlignCenter)
 
+    # ------------------------------------------------------------ 눌러 끌기
+
+    def mousePressEvent(self, event):
+        self.drag_press(event)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        self.drag_move(event)
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
+        if self.drag_release():
+            return                  # 끌어다 놓은 것이지 누른 것이 아니다
         if event.button() == Qt.LeftButton and self.rect().contains(event.pos()):
             if self.on_open and self.macro.path:
                 self.on_open(self.macro)
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event):
+        # 끄는 중에 오른쪽 버튼이 눌리면 메뉴 대신 제자리에 내려놓는다
+        if self.drag_release():
+            return
         if self.on_menu:
             self.on_menu(self.macro, event.globalPos())
 
@@ -898,6 +1225,7 @@ class HomeWindow(FramelessWindow):
         self._build_gen = 0
         self._pending_rows: List[Macro] = []
         self._stretch_added = False
+        self.reorder = None      # 스크롤 영역을 만든 뒤에 붙인다
         #: 지금 보이고 있는 표의 열 (창 폭에 따라 바뀐다)
         self._columns = visible_columns(1440)
         #: 넓은 창에서 사용자가 직접 접어둔 상태인가 (다음에 켤 때도 이어진다)
@@ -944,6 +1272,7 @@ class HomeWindow(FramelessWindow):
             on_menu=self.folder_menu,
             on_new_folder=self.new_folder,
             on_settings=self.open_settings,
+            on_reordered=self._folders_reordered,
         )
         root.addWidget(self.sidebar)
 
@@ -974,6 +1303,10 @@ class HomeWindow(FramelessWindow):
         self.scroll.verticalScrollBar().valueChanged.connect(self._on_scrolled)
         right.addWidget(self.scroll, 1)
 
+        self.reorder = DragReorder(
+            self.scroll.viewport(), self.rows_box, scroll=self.scroll,
+            prepare=self.build_all_rows, on_drop=self.remember_order)
+
         right.addWidget(self._status_bar())
 
         holder = QWidget()
@@ -989,7 +1322,11 @@ class HomeWindow(FramelessWindow):
     def visible_macros(self) -> List[Macro]:
         items = self.macros
         if self.folder_key != ALL_FOLDERS:
-            items = [m for m in items if m.folder == self.folder_key]
+            folder = self.folder_key
+            items = [m for m in items if m.folder == folder]
+            items = settle(items, load_macro_order(folder),
+                           key=lambda m: m.name,
+                           remember=lambda ns: save_macro_order(folder, ns))
         if self.query:
             needle = self.query.lower()
             items = [m for m in items if needle in m.name.lower()]
@@ -1007,6 +1344,8 @@ class HomeWindow(FramelessWindow):
     def _rebuild(self) -> None:
         # 세대 번호를 올려 이전 목록을 채우던 작업을 무효화한다
         self._build_gen += 1
+        if self.reorder is not None:
+            self.reorder.cancel()  # 다시 그리기 전에 끌던 것을 내려놓는다
         self._pending_rows = []
         self._stretch_added = False
 
@@ -1083,6 +1422,8 @@ class HomeWindow(FramelessWindow):
             self._show_rename_error(f"바꾸지 못했습니다 — {exc}")
             return
 
+        move_macro_order(old, name)
+        rename_in_folder_order(old, name)
         self._end_rename()
         self.reload(select=name)
 
@@ -1095,7 +1436,8 @@ class HomeWindow(FramelessWindow):
 
         for folder in folders:
             row = FolderRow(folder, self.ratio,
-                            on_open=self._on_folder, on_menu=self.folder_menu)
+                            on_open=self._on_folder, on_menu=self.folder_menu,
+                            reorder=self.reorder)
             row.apply_columns(self._columns)
             self.rows_box.addWidget(row)
 
@@ -1132,10 +1474,12 @@ class HomeWindow(FramelessWindow):
         body = self.rows_box.parentWidget()
         body.setUpdatesEnabled(False)          # 한 묶음을 그리는 동안 재배치를 미룬다
         try:
+            movable = self.can_reorder
             for macro in macros:
                 row = MacroRow(macro, self.ratio,
                                on_open=self.open_macro,
-                               on_menu=self.macro_menu)
+                               on_menu=self.macro_menu,
+                               reorder=self.reorder if movable else None)
                 row.apply_columns(self._columns)
                 self.rows_box.addWidget(row)
         finally:
@@ -1147,6 +1491,63 @@ class HomeWindow(FramelessWindow):
             return
         self.rows_box.addStretch(1)
         self._stretch_added = True
+
+    @property
+    def can_reorder(self) -> bool:
+        """차례를 바꿀 수 있는 화면인가.
+
+        폴더 하나를 그대로 보고 있을 때만이다. 검색 결과나 '전체' 는 여러
+        폴더가 섞여 있어 어디에 놓은 것인지 정할 수가 없다.
+        """
+        return self.folder_key != ALL_FOLDERS and not self.query
+
+    def build_all_rows(self) -> None:
+        """아직 안 만든 행을 한 번에 다 만든다.
+
+        차례를 바꾸려면 목록이 통째로 있어야 한다 — 절반만 있는 채로 끌면
+        보이지 않는 행을 건너뛰고 자리를 잡게 된다.
+        """
+        while self._pending_rows:
+            self._build_more()
+        self._finish_rows()
+
+    def _folders_reordered(self) -> None:
+        """사이드바에서 폴더 차례를 바꿨을 때.
+
+        '전체' 화면의 폴더 목록도 같은 차례를 따르므로 다시 그린다.
+        사이드바는 이미 제자리를 잡았으니 건드리지 않는다.
+        """
+        if self.in_folder_list:
+            self._rebuild()
+
+    def _listed(self, kind) -> list:
+        """목록에 선 순서대로 그 종류의 행들."""
+        rows = []
+        for i in range(self.rows_box.count()):
+            widget = self.rows_box.itemAt(i).widget()
+            if isinstance(widget, kind):
+                rows.append(widget)
+        return rows
+
+    def remember_order(self) -> None:
+        """지금 화면에 선 차례를 그대로 적어둔다.
+
+        '전체' 화면에서는 폴더 차례, 폴더 안에서는 매크로 차례다 — 같은
+        자리(rows_box)에 무엇이 서 있느냐만 다르다.
+        """
+        if self.in_folder_list:
+            names = [row.folder.name for row in self._listed(FolderRow)]
+            if names:
+                save_folder_order(names)
+                # 사이드바도 같은 차례를 따라야 한다
+                self.sidebar.set_folders(load_folders(self.macros), self.folder_key)
+            return
+
+        if not self.can_reorder:
+            return
+        names = [row.macro.name for row in self._listed(MacroRow)]
+        if names:
+            save_macro_order(self.folder_key, names)
 
     def _build_more(self) -> None:
         """다음 묶음을 만든다. 스크롤이 바닥에 가까워졌을 때 불린다."""
@@ -1430,6 +1831,8 @@ class HomeWindow(FramelessWindow):
         except OSError as exc:
             dialogs.alert(self, "바꿀 수 없음", f"{old} → {name}\n\n{exc}")
             return
+        move_macro_order(old, name)
+        rename_in_folder_order(old, name)
         self.reload(select=name)
 
     def duplicate_folder(self, name: str) -> None:
@@ -1455,6 +1858,8 @@ class HomeWindow(FramelessWindow):
         except (OSError, ValueError) as exc:
             dialogs.alert(self, "지울 수 없음", f"{name}\n\n{exc}")
             return
+        move_macro_order(name, None)
+        rename_in_folder_order(name, None)
         self.reload(select=ALL_FOLDERS)
 
     def folder_menu(self, name: str, at) -> None:
@@ -1531,6 +1936,20 @@ class HomeWindow(FramelessWindow):
         self.open_macro(Macro(name=name, folder=folder, nodes=len(graph.nodes),
                               last_run="방금", path=path))
 
+    def _retrack_order(self, folder: str, old: str, new: Optional[str]) -> None:
+        """이름이 바뀌거나 사라진 매크로를 적어둔 차례에서도 고친다.
+
+        안 고치면 이름만 바꿔도 ‘차례에 없는 매크로’ 가 되어 맨 위로 튄다.
+        """
+        names = load_macro_order(folder)
+        if old not in names:
+            return
+        if new is None:
+            names = [n for n in names if n != old]
+        else:
+            names = [new if n == old else n for n in names]
+        save_macro_order(folder, names)
+
     def rename_macro(self, macro: Macro) -> None:
         if self._editor_open_for(macro):
             return
@@ -1548,6 +1967,7 @@ class HomeWindow(FramelessWindow):
         except OSError as exc:
             dialogs.alert(self, "바꿀 수 없음", f"{macro.name} → {name}\n\n{exc}")
             return
+        self._retrack_order(macro.folder, macro.name, name)
         self.reload()
 
     def duplicate_macro(self, macro: Macro) -> None:
@@ -1570,6 +1990,8 @@ class HomeWindow(FramelessWindow):
         except OSError as exc:
             dialogs.alert(self, "옮길 수 없음", f"{macro.name}\n\n{exc}")
             return
+        # 옮겨간 폴더에서는 새로 온 매크로처럼 맨 위에 선다
+        self._retrack_order(macro.folder, macro.name, None)
         self.reload()
 
     def delete_macro(self, macro: Macro) -> None:
@@ -1588,6 +2010,7 @@ class HomeWindow(FramelessWindow):
         except (OSError, ValueError) as exc:
             dialogs.alert(self, "지울 수 없음", f"{macro.name}\n\n{exc}")
             return
+        self._retrack_order(macro.folder, macro.name, None)
         self.reload()
 
     def macro_menu(self, macro: Macro, at) -> None:

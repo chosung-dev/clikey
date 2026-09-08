@@ -383,6 +383,12 @@ def stylesheet() -> str:
     QPushButton#TidyBtn:disabled {{ color: {INK_4}; border-color: {RULE_1}; font-weight: 400; }}
 
     /* 열 사이 · 두 줄로 나뉜 단축키 사이에 세우는 실낱 같은 선 */
+    /* 끌고 있는 행이 놓일 자리. 파선으로 '여기에 들어간다' 만 말한다 */
+    QWidget#DropSlot {{
+        background: {ACCENT_BG}; border: 1px dashed {ACCENT};
+        border-radius: {RADIUS_CTRL}px;
+    }}
+
     QFrame#ColRule {{ background: {RULE_2}; border: none; }}
     /* 행 쪽은 머리글과 열을 맞추기 위한 자리일 뿐, 선을 긋지 않는다 */
     QFrame#ColSpacer {{ background: transparent; border: none; }}
@@ -457,6 +463,15 @@ def stylesheet() -> str:
     QFrame#FolderRow      {{ background: {BG}; border-bottom: 1px solid {RULE_1}; }}
     QFrame#FolderRow:hover{{ background: {PANEL}; }}
     QFrame#RowOn    {{ background: #F7F9FE; border-bottom: 1px solid {RULE_1}; }}
+
+    /* 들어 올린 행. 목록에서 떠 있다는 것이 보이게 테두리를 두른다.
+       명시도가 :hover 와 같으므로 그 뒤에 적어야 이긴다. */
+    QFrame#Row[dragging="true"], QFrame#RowOn[dragging="true"],
+    QFrame#FolderRow[dragging="true"], QFrame#NavItem[dragging="true"],
+    QFrame#NavItemOn[dragging="true"] {{
+        background: {BG}; border: 1px solid {ACCENT};
+        border-radius: {RADIUS_CTRL}px;
+    }}
     QFrame#HeadRow  {{ border-top: 1px solid {RULE_2}; border-bottom: 1px solid {RULE_1}; }}
 
     QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; border: none; }}

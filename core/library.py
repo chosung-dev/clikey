@@ -398,6 +398,7 @@ def keep_modified(path: Path):
     편집기에서 저장한 것은 진짜 수정이므로 여기를 거치지 않는다 — 그때는
     맨 위로 올라오는 편이 맞다.
     """
+    path = Path(path)          # 문자열 경로로 불러도 되게
     try:
         before = path.stat()
     except OSError:

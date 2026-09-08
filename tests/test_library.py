@@ -79,9 +79,11 @@ def test_reads_back_what_the_list_shows():
     path = write(sample())
     try:
         library.set_hotkeys(path, "f6", "f7")
-        nodes, start_key, stop_key, enabled = library.read_summary(Path(path))
+        nodes, start_key, stop_key, enabled, mcp_only = library.read_summary(
+            Path(path))
         assert (start_key, stop_key) == ("f6", "f7")
         assert nodes == 3 and enabled is True
+        assert mcp_only is False        # 판단 노드가 없는 평범한 매크로
     finally:
         shutil.rmtree(os.path.dirname(path))
 
