@@ -9,7 +9,7 @@
 여기서 집은 자리와 매크로가 누르는 자리가 달라지는데, 주 모니터로 한정하면
 그 어긋남이 아예 생기지 않는다.
 
-미리 담아둔 화면(ui_qt.rewind)을 건네면 그 여러 장 사이를 오갈 수 있다.
+미리 담아둔 묶음(ui_qt.rewind.FrameStore)을 건네면 그 사이를 오갈 수 있다.
 멈춘 화면에는 이미 지나가 버린 것이 있기 마련이라, 한 장씩 되감아 필요한
 순간을 찾은 뒤 그 위에서 고른다. 한 장만 건네거나 아무것도 건네지 않으면
 지금 화면 하나로 고르는, 예전 그대로다.
@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from typing import Optional, Tuple
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import (
@@ -35,7 +35,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QDialog
 
 from ui_qt import theme as T
-from ui_qt.rewind import FPS
+from ui_qt.rewind import FPS, FrameStore
 
 ZOOM = 8                 # 확대경 배율
 ZOOM_PIXELS = 15         # 확대경에 보이는 원본 픽셀 수 (한 변)
@@ -57,7 +57,7 @@ class PickResult:
 
 
 class ScreenPicker(QDialog):
-    def __init__(self, parent=None, frames: Optional[Sequence] = None):
+    def __init__(self, parent=None, frames: Optional[FrameStore] = None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint
                             | Qt.WindowStaysOnTopHint)
@@ -65,16 +65,15 @@ class ScreenPicker(QDialog):
         self.setMouseTracking(True)
 
         #: 오래된 것이 앞, 가장 최근이 뒤. 비어 오면 지금 화면을 한 장 찍는다.
-        self.frames: List = [f for f in (frames or [])
-                             if f is not None and not f.isNull()]
-        if self.frames:
+        if frames is not None and len(frames):
+            self.store = frames
             self.origin = QGuiApplication.primaryScreen().geometry().topLeft()
         else:
             shot, self.origin = self._grab_main_screen()
-            self.frames = [shot]
+            self.store = FrameStore.of(shot)
 
-        self.index = len(self.frames) - 1        # 가장 최근 = 지금 화면
-        self.shot = self.frames[self.index]
+        self.index = len(self.store) - 1         # 가장 최근 = 지금 화면
+        self.shot = self.store.pixmap(self.index)
         self.setGeometry(QRect(self.origin, self.shot.deviceIndependentSize().toSize()))
 
         self.cursor_at = QPoint(0, 0)
@@ -94,17 +93,21 @@ class ScreenPicker(QDialog):
         """그 장으로 갈아 끼운다.
 
         확대경도 색도 self.shot 하나만 보므로 여기만 바꾸면 함께 따라온다.
+        묶음은 임시 파일에 있으므로 여기서 한 장을 꺼내 읽는다.
         """
-        index = min(max(index, 0), len(self.frames) - 1)
+        index = min(max(index, 0), len(self.store) - 1)
         if index == self.index:
             return
+        shot = self.store.pixmap(index)
+        if shot is None or shot.isNull():
+            return          # 읽지 못했으면 보던 장을 그대로 둔다
         self.index = index
-        self.shot = self.frames[index]
+        self.shot = shot
         self.update()
 
     def timeline_rect(self) -> Optional[QRect]:
         """되감을 것이 없으면 막대도 없다."""
-        if len(self.frames) < 2:
+        if len(self.store) < 2:
             return None
         width = min(TL_WIDTH, self.width() - 80)
         return QRect((self.width() - width) // 2,
@@ -228,7 +231,7 @@ class ScreenPicker(QDialog):
         painter.setBrush(QColor(27, 30, 35, 220))
         painter.drawRoundedRect(box, 12, 12)
 
-        back = (len(self.frames) - 1 - self.index) / FPS
+        back = (len(self.store) - 1 - self.index) / FPS
         font = QFont(painter.font())
         font.setPointSizeF(9.5)
         painter.setFont(font)
@@ -243,7 +246,7 @@ class ScreenPicker(QDialog):
         painter.setBrush(QColor(255, 255, 255, 60))
         painter.drawRoundedRect(track, 2, 2)
 
-        span = max(len(self.frames) - 1, 1)
+        span = max(len(self.store) - 1, 1)
         done = int(track.width() * self.index / span)
         painter.setBrush(QColor(T.ACCENT))
         painter.drawRoundedRect(
@@ -299,7 +302,7 @@ class ScreenPicker(QDialog):
             self.show_frame(0)
             return
         if key == Qt.Key_End:
-            self.show_frame(len(self.frames) - 1)
+            self.show_frame(len(self.store) - 1)
             return
         super().keyPressEvent(event)
 
@@ -311,10 +314,11 @@ class ScreenPicker(QDialog):
 
 
 def pick_from_screen(parent=None,
-                     frames: Optional[Sequence] = None) -> Optional[PickResult]:
+                     frames: Optional[FrameStore] = None) -> Optional[PickResult]:
     """주 모니터를 덮어 좌표·색을 고르게 한다. 취소하면 None.
 
-    frames 를 건네면 그 사이를 되감아 가며 고를 수 있다.
+    frames 를 건네면 그 사이를 되감아 가며 고를 수 있다. 다 쓴 묶음을 지우는
+    몫은 건넨 쪽에 있다.
     """
     picker = ScreenPicker(parent, frames)
     if picker.exec() == QDialog.Accepted:
@@ -330,7 +334,7 @@ class RegionPicker(ScreenPicker):
 
     MIN_SIDE = 4             # 이보다 작으면 잘못 누른 것으로 본다
 
-    def __init__(self, parent=None, frames: Optional[Sequence] = None):
+    def __init__(self, parent=None, frames: Optional[FrameStore] = None):
         super().__init__(parent, frames)
         self.drag_from: Optional[QPoint] = None
         self.region: Optional[Tuple[int, int, int, int]] = None
@@ -427,7 +431,7 @@ class RegionPicker(ScreenPicker):
         self.accept()
 
 
-def pick_region(parent=None, frames: Optional[Sequence] = None
+def pick_region(parent=None, frames: Optional[FrameStore] = None
                 ) -> Optional[Tuple[int, int, int, int]]:
     """주 모니터를 덮어 영역을 고르게 한다. (x1, y1, x2, y2) 또는 None."""
     picker = RegionPicker(parent, frames)

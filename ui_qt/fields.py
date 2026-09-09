@@ -292,9 +292,9 @@ class PointField(QWidget):
         try:
             picked = pick_from_screen(self.window(), frames)
         finally:
-            # 다 쓴 화면은 그 자리에서 버린다 — 1080p 한 장이 8MB 가까이 된다
-            if frames:
-                frames.clear()
+            # 다 쓴 화면은 그 자리에서 버린다. 임시 폴더까지 함께 지운다.
+            if frames is not None:
+                frames.discard()
         if picked is None:
             return
         self.pos = {"x": picked.x, "y": picked.y}
