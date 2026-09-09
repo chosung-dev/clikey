@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from core import hotkeys
 from ui_qt import theme as T
+from ui_qt.rewind import HoldToRecordButton
 
 Setter = Callable[[Any], None]
 
@@ -192,7 +193,7 @@ class PointField(QWidget):
         self.sources = list(sources or [])
         #: 캔버스에서 직접 고르게 하는 편집기 쪽 기능
         self.pick = pick
-        #: 색상 검색 노드에서는 좌표를 집을 때 그 자리 색도 함께 담는다
+        #: 색상 일치 노드에서는 좌표를 집을 때 그 자리 색도 함께 담는다
         self.also_color = also_color
 
         lay = QVBoxLayout(self)
@@ -247,13 +248,22 @@ class PointField(QWidget):
             row.addWidget(wrap, 1)
         lay.addLayout(row)
 
-        capture = QPushButton("화면에서 좌표·색상 집기" if self.also_color
-                              else "화면에서 좌표 집기")
+        # 꾹 누르고 있는 동안 화면을 담아, 멈춘 뒤 되감아 고를 수 있게 한다.
+        # 툭 누르고 떼면 한 장만 담겨 예전처럼 지금 화면에서 고르게 된다.
+        capture = HoldToRecordButton("화면에서 좌표·색상 집기" if self.also_color
+                                     else "화면에서 좌표 집기")
         capture.setObjectName("GhostBtn")
         capture.setFixedHeight(30)
         capture.setCursor(Qt.PointingHandCursor)
-        capture.clicked.connect(self._capture)
+        capture.recorded.connect(self._capture)
         lay.addWidget(capture)
+
+        self.hold_hint = QLabel("꾹 누르면 되감아 고를 수 있습니다")
+        self.hold_hint.setWordWrap(True)
+        self.hold_hint.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
+        lay.addWidget(self.hold_hint)
+        # 버튼이 좁아 다 못 적은 사정이 여기로 온다. 줄바꿈이 되어 자리가 넉넉하다.
+        capture.notice.connect(self._say_notice)
 
         if self.sources:
             follow = QPushButton("찾은 좌표 따라가기")
@@ -278,10 +288,27 @@ class PointField(QWidget):
         self.pos[axis] = int(value)
         self.on_change(dict(self.pos))
 
-    def _capture(self) -> None:
+    def _say_notice(self, text: str) -> None:
+        """버튼이 다 못 적은 사정을 안내줄에 건다. 빈 문자열이면 제자리로."""
+        hint = getattr(self, "hold_hint", None)
+        if hint is None:
+            return
+        if text:
+            hint.setText(text)
+            hint.setStyleSheet(f"font-size: 11px; color: {T.DANGER};")
+        else:
+            hint.setText("꾹 누르면 되감아 고를 수 있습니다")
+            hint.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
+
+    def _capture(self, frames=None) -> None:
         from ui_qt.picker import pick_from_screen
 
-        picked = pick_from_screen(self.window())
+        try:
+            picked = pick_from_screen(self.window(), frames)
+        finally:
+            # 다 쓴 화면은 그 자리에서 버린다. 임시 폴더까지 함께 지운다.
+            if frames is not None:
+                frames.discard()
         if picked is None:
             return
         self.pos = {"x": picked.x, "y": picked.y}
@@ -290,7 +317,7 @@ class PointField(QWidget):
             edit.setText(edit._format(self.pos[axis]))
             edit._last = edit.text()
         self.on_change(dict(self.pos))
-        # 색상 검색라면 그 자리의 색까지 한 번에 담는다
+        # 색상 일치라면 그 자리의 색까지 한 번에 담는다
         if self.also_color:
             self.also_color(list(picked.rgb))
 

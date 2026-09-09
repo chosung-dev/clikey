@@ -517,7 +517,7 @@ class Inspector(QWidget):
                                sources=self._locator_sources(node, graph),
                                pick=self.on_pick_coord)
                 if "color" in node.params:
-                    # 색상 검색는 좌표를 집을 때 그 자리 색까지 함께 담는다
+                    # 색상 일치는 좌표를 집을 때 그 자리 색까지 함께 담는다
                     options["also_color"] = (
                         lambda rgb, n=node: self._captured_color(n, rgb))
             elif kind == "tolerance":

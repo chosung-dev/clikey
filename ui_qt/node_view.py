@@ -53,7 +53,7 @@ LABEL = {
     "key_press": "키 누르기", "key_down": "키 누르고 있기", "key_up": "키 떼기",
     "delay": "대기",
     "notify": "알림",
-    "image_match": "이미지 검색", "rgb_match": "색상 검색",
+    "image_match": "이미지 검색", "rgb_match": "색상 일치",
     "ask": "AI 판단", "ai_point": "AI 위치 찾기", "ai_act": "AI 입력",
     "loop": "반복",
 }
