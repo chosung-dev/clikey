@@ -36,7 +36,7 @@ import shutil
 import tempfile
 import threading
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -116,6 +116,65 @@ def room_to_start() -> bool:
     return _free_bytes() - DISK_FLOOR > _frame_bytes() * MIN_START_FRAMES
 
 
+def _readable(size: int) -> str:
+    """사람이 읽을 크기. 480MB, 1.5GB 처럼."""
+    for unit, step in (("GB", 1024 ** 3), ("MB", 1024 ** 2)):
+        if size >= step:
+            return f"{size / step:.1f}{unit}".replace(".0", "")
+    return f"{max(size, 0) / 1024:.0f}KB"
+
+
+def temp_drive() -> str:
+    """임시 폴더가 앉은 드라이브. 'C:' 같은 꼴."""
+    return os.path.splitdrive(tempfile.gettempdir())[0] or "임시 폴더"
+
+
+def shortage_words(reason: str, kept: int) -> Tuple[Tuple[str, ...], str, str]:
+    """자리가 모자란 사정을 (버튼에 걸 말들, 막대 한 줄, 풀어 쓴 말) 로.
+
+    버튼이 좁다 — 속성 패널이 296px, 좁혀지면 236px 다. 거기 다 적으려 하면
+    잘려서 오히려 못 읽는다. 그래서 셋으로 나눈다. 버튼에는 무엇이 모자라
+    어디까지 담겼는지만, 어느 드라이브에 얼마가 남아 그렇게 됐는지는 바로
+    아래 안내줄에. 둘이 붙어 있어 한눈에 함께 읽힌다.
+
+    버튼 쪽은 자세한 것부터 짧은 것 차례로 준다. 들어가는 것 중 가장 자세한
+    말이 걸린다.
+
+    까닭이 둘이라 말도 갈라야 한다. 드라이브가 찬 것과 우리가 스스로 그은
+    선에 닿은 것은 사용자가 할 일이 아주 다르다 — 앞은 자리를 비우면 되고,
+    뒤는 비워도 그대로다.
+    """
+    seconds = kept / FPS
+
+    if reason == "budget":
+        cap = _readable(DISK_BUDGET)
+        return (
+            (f"담기 한도 도달 · {seconds:.1f}초까지",
+             f"담기 한도 · {seconds:.1f}초까지",
+             "담기 한도 도달"),
+            "한 번에 담는 한도에 닿아 여기까지만 담겼습니다",
+            f"한 번에 담는 양을 {cap} 로 묶어 두었습니다. 화면이 커서 "
+            f"{seconds:.1f}초 만에 그만큼 찼습니다. 자리를 비워도 늘지 않습니다.",
+        )
+
+    drive, free = temp_drive(), _readable(_free_bytes())
+    if kept:
+        return (
+            (f"저장 공간 부족 · {seconds:.1f}초까지",
+             f"저장 공간 부족 · {seconds:.1f}초",
+             "저장 공간 부족"),
+            f"{drive} 드라이브 공간이 부족해 여기까지만 담겼습니다",
+            f"{drive} 드라이브 여유 공간이 {free} 뿐이라 {seconds:.1f}초에서 "
+            f"멈췄습니다. 공간을 비우면 더 길게 담깁니다.",
+        )
+    return (
+        ("저장 공간 부족 · 되감기 없음", "저장 공간 부족"),
+        f"{drive} 드라이브 공간이 부족해 담지 못했습니다",
+        f"{drive} 드라이브 여유 공간이 {free} 뿐이라 되감기를 담지 못했습니다. "
+        f"좌표는 지금 화면에서 그대로 집힙니다. 공간을 비우면 다시 담깁니다.",
+    )
+
+
 def _sweep_stale() -> None:
     """지난번에 남은 임시 폴더를 쓸어낸다. 우리 것만, 충분히 오래된 것만."""
     root = tempfile.gettempdir()
@@ -150,6 +209,9 @@ class FrameStore:
         self._paths: List[str] = []
         #: 자리가 모자라 끊겼는가. 되감기 막대가 그 사정을 알린다.
         self.cut_short = False
+        #: 무엇 때문에 끊겼는가. "disk" 는 드라이브가 찬 것, "budget" 은
+        #: 우리가 그은 선에 닿은 것. 사용자가 할 일이 달라 갈라 둔다.
+        self.stopped_by = ""
         #: 여태 쓴 바이트. 우리 몫을 넘지 않았는지 보는 데 쓴다.
         self._written = 0
         #: 파일 없이 들고 있는 한 장. 담지 않고 지금 화면만 볼 때 쓴다.
@@ -189,10 +251,15 @@ class FrameStore:
         누르는 데 몇 기가를 쓰는 것은 과하다.
         """
         if self._folder is None:
+            self.stopped_by = "disk"
             return False
         if self._written >= DISK_BUDGET:
+            self.stopped_by = "budget"
             return False
-        return _free_bytes(self._folder) - _frame_bytes() > DISK_FLOOR
+        if _free_bytes(self._folder) - _frame_bytes() <= DISK_FLOOR:
+            self.stopped_by = "disk"
+            return False
+        return True
 
     def write(self, bgr: np.ndarray) -> bool:
         """새 화면을 파일로 남긴다."""
@@ -236,6 +303,12 @@ class FrameStore:
         self._paths.append(self._paths[-1])
         return True
 
+    def shortage(self) -> Optional[Tuple[Tuple[str, ...], str, str]]:
+        """자리가 모자라 끊겼다면 그 사정을. 멀쩡히 끝났으면 None."""
+        if not self.cut_short:
+            return None
+        return shortage_words(self.stopped_by or "disk", len(self))
+
     # ------------------------------------------------------------ 버리기
 
     def discard(self) -> None:
@@ -246,6 +319,7 @@ class FrameStore:
         self._paths = []
         self._written = 0
         self.cut_short = False
+        self.stopped_by = ""
         if self._folder is not None:
             shutil.rmtree(self._folder, ignore_errors=True)
             self._folder = None
@@ -306,6 +380,8 @@ class FrameRecorder(QObject):
             else:
                 full = True
                 store.cut_short = True
+                # room_left 가 짚어두지 않았다면 쓰다 넘어진 것이다
+                store.stopped_by = store.stopped_by or "disk"
                 self.out_of_space.emit()
             jobs.task_done()
 
@@ -427,6 +503,9 @@ class HoldToRecordButton(QPushButton):
 
     #: FrameStore — 담은 화면. 받은 쪽이 다 쓰고 discard() 해야 한다.
     recorded = Signal(object)
+    #: 버튼에 다 못 적은 사정을 풀어 쓴 말. 빈 문자열이면 걷으라는 뜻이다.
+    #: 버튼 아래 안내줄이 받아 건다 — 거기는 줄바꿈이 되어 자리가 넉넉하다.
+    notice = Signal(str)
 
     DOT_R = 4               # 붉은 점 반지름
     DOT_LEFT = 14           # 왼쪽에서 띄우는 만큼
@@ -472,7 +551,7 @@ class HoldToRecordButton(QPushButton):
                 # 담을 자리가 없다. 그렇다고 좌표 집는 일까지 막을 이유는
                 # 없다 — 되감기만 빼고 예전처럼 지금 화면에서 고르게 둔다.
                 self._short = True
-                self.setText("용량이 모자라 되감기 없이 집습니다")
+                self._say_short("disk", 0, warn=False)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -488,7 +567,7 @@ class HoldToRecordButton(QPushButton):
         self.setDown(False)         # 다 차서 왔으면 아직 눌려 있다
         store = self._recorder.stop()
         if self._short:
-            self._say_short(len(store))
+            self._say_short(store.stopped_by or "disk", len(store))
         # 받는 쪽이 곧바로 피커를 띄운다. 마우스 사건이나 타이머 안에서 창을
         # 열면 그 자리에 이벤트 루프가 하나 더 얹히므로, 여기서 빠져나온 뒤에
         # 넘긴다.
@@ -499,34 +578,56 @@ class HoldToRecordButton(QPushButton):
         self._short = True
         self._finish()
 
-    def _say_short(self, kept: int) -> None:
-        """자리 때문에 짧아졌다는 것을 버튼에 남긴다.
+    def _fit(self, *candidates: str) -> str:
+        """버튼에 들어가는 가장 자세한 말을 고른다.
 
-        잠시 뒤 원래 글씨로 돌아온다. 눌러야 할 버튼이 언제까지고 딴 말을
-        달고 있으면 그것대로 헷갈린다.
+        패널은 넓을 때 296px, 좁혀지면 236px 다. 한 가지 말로 못 맞춘다 —
+        넘치면 잘려서 오히려 못 읽는다. 자세한 것부터 대보고 들어가는 것을
+        고른다.
         """
-        if kept:
-            self.setText(f"용량이 모자라 {kept / FPS:.1f}초까지만 담겼습니다")
-        else:
-            self.setText("용량이 모자라 담지 못했습니다")
-            self._warn_nothing_kept()
+        room = self.width() - 20            # 버튼 안쪽 좌우 여백
+        metrics = self.fontMetrics()
+        for text in candidates:
+            if metrics.horizontalAdvance(text) <= room:
+                return text
+        return candidates[-1]
+
+    def _say_short(self, reason: str, kept: int, warn: bool = True) -> None:
+        """자리가 모자란 사정을 알린다.
+
+        버튼에는 들어가는 만큼만, 나머지는 바로 아래 안내줄로 넘긴다. 둘이
+        붙어 있어 한눈에 함께 읽힌다 — 어느 드라이브에 얼마가 남아 이렇게
+        됐는지까지 거기서 알 수 있다.
+
+        잠시 뒤 원래대로 돌아온다. 눌러야 할 버튼이 언제까지고 딴 말을 달고
+        있으면 그것대로 헷갈린다.
+        """
+        candidates, _bar, detail = shortage_words(reason, kept)
+        self.setText(self._fit(*candidates))
+        self.notice.emit(detail)
+        if warn and not kept:
+            self._warn_nothing_kept(detail)
         QTimer.singleShot(self.NOTICE_MS, self._restore_label)
 
     @staticmethod
-    def _warn_nothing_kept() -> None:
-        """한 장도 담기지 않았을 때만. 버튼 글씨는 피커에 가려 놓치기 쉽다."""
+    def _warn_nothing_kept(detail: str) -> None:
+        """한 장도 담기지 않았을 때만.
+
+        그때는 되감기 막대도 없고 버튼은 곧 피커에 가린다. 어디에도 남지
+        않아 무슨 일이 있었는지 모른 채 지나가기 쉽다.
+        """
         try:
             from ui_qt import toast
 
-            toast.show("되감기를 담지 못했습니다",
-                       "저장 용량이 모자랍니다. 자리를 비우면 다시 담깁니다.",
-                       sound=False, seconds=6.0)
+            toast.show("되감기를 담지 못했습니다", detail,
+                       sound=False, seconds=8.0)
         except Exception:
             pass            # 알림이 안 떠도 좌표 집는 일은 그대로 된다
 
     def _restore_label(self) -> None:
         if not self._holding:
             self.setText(self._label)
+            self.notice.emit("")       # 안내줄도 제자리로
 
     def _animate(self) -> None:
         """깜박임과 초를 한 박자에 굴린다."""

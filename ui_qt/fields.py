@@ -258,10 +258,12 @@ class PointField(QWidget):
         capture.recorded.connect(self._capture)
         lay.addWidget(capture)
 
-        hold = QLabel("꾹 누르면 되감아 고를 수 있습니다")
-        hold.setWordWrap(True)
-        hold.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
-        lay.addWidget(hold)
+        self.hold_hint = QLabel("꾹 누르면 되감아 고를 수 있습니다")
+        self.hold_hint.setWordWrap(True)
+        self.hold_hint.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
+        lay.addWidget(self.hold_hint)
+        # 버튼이 좁아 다 못 적은 사정이 여기로 온다. 줄바꿈이 되어 자리가 넉넉하다.
+        capture.notice.connect(self._say_notice)
 
         if self.sources:
             follow = QPushButton("찾은 좌표 따라가기")
@@ -285,6 +287,18 @@ class PointField(QWidget):
     def _set(self, axis: str, value) -> None:
         self.pos[axis] = int(value)
         self.on_change(dict(self.pos))
+
+    def _say_notice(self, text: str) -> None:
+        """버튼이 다 못 적은 사정을 안내줄에 건다. 빈 문자열이면 제자리로."""
+        hint = getattr(self, "hold_hint", None)
+        if hint is None:
+            return
+        if text:
+            hint.setText(text)
+            hint.setStyleSheet(f"font-size: 11px; color: {T.DANGER};")
+        else:
+            hint.setText("꾹 누르면 되감아 고를 수 있습니다")
+            hint.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
 
     def _capture(self, frames=None) -> None:
         from ui_qt.picker import pick_from_screen

@@ -112,7 +112,13 @@ class ScreenPicker(QDialog):
         열두 장뿐인 것이 원래 그런 것인지 무슨 일이 있었던 것인지, 보는
         사람은 알 길이 없다.
         """
-        return bool(getattr(self.store, "cut_short", False))
+        return bool(self._shortage_line())
+
+    def _shortage_line(self) -> str:
+        """막대에 적을 한 줄. 끊긴 일이 없으면 빈 문자열."""
+        ask = getattr(self.store, "shortage", None)
+        note = ask() if callable(ask) else None
+        return note[1] if note else ""
 
     def timeline_rect(self) -> Optional[QRect]:
         """되감을 것이 없으면 막대도 없다."""
@@ -252,13 +258,13 @@ class ScreenPicker(QDialog):
                          Qt.AlignCenter,
                          moment + "  ·  ← →  또는  A D  로 한 장씩")
 
-        if self.cut_short():
+        note = self._shortage_line()
+        if note:
             # 흰 글씨로 나란히 두면 안내인지 사정인지 섞인다. 붉은 기를 준다.
             painter.setPen(QColor(255, 176, 168))
             painter.drawText(QRect(box.x(), box.y() + 7 + TL_LINE,
                                    box.width(), 20),
-                             Qt.AlignCenter,
-                             "용량이 모자라 여기까지만 담겼습니다")
+                             Qt.AlignCenter, note)
 
         track = self._track_rect(box)
         painter.setPen(Qt.NoPen)
