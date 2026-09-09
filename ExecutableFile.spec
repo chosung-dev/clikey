@@ -1,9 +1,13 @@
 # ExecutableFile.spec
 #
 #   pyinstaller --noconfirm --clean ExecutableFile.spec -- --app-name "Clikey"
+#   pyinstaller --noconfirm --clean ExecutableFile.spec -- --app-name "Clikey" --onefile
 #
 # 결과물은 dist/Clikey/ 에 통째로 나온다. 그 폴더를 압축해 옮기면 설치 없이
 # 바로 실행된다.
+#
+# --onefile 을 주면 dist/Clikey.exe 파일 하나로 나온다. 옮기기는 쉽지만 켤
+# 때마다 임시 폴더에 풀어놓고 시작하므로 첫 화면이 몇 초 늦게 뜬다.
 import argparse
 
 from PyInstaller.utils.hooks import (
@@ -14,6 +18,7 @@ from PyInstaller.utils.hooks import (
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app-name", default="Clikey")
+parser.add_argument("--onefile", action="store_true")
 opts = parser.parse_args()
 
 # 코드에서 이름으로 직접 부르지 않아 PyInstaller 가 놓치는 것들.
@@ -109,11 +114,15 @@ a.binaries = [b for b in a.binaries
 
 pyz = PYZ(a.pure, a.zipped_data)
 
+# 한 파일로 묶을 때는 짐을 EXE 안에 넣고 COLLECT 를 두지 않는다.
+bundled = [a.binaries, a.zipfiles, a.datas] if opts.onefile else []
+
 exe = EXE(
     pyz,
     a.scripts,
+    *bundled,
     [],
-    exclude_binaries=True,
+    exclude_binaries=not opts.onefile,
     name=opts.app_name,
     debug=False,
     bootloader_ignore_signals=False,
@@ -124,12 +133,13 @@ exe = EXE(
     icon="app.ico",
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    name="Clikey",
-)
+if not opts.onefile:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,
+        name="Clikey",
+    )
