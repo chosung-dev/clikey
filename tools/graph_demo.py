@@ -30,12 +30,12 @@ def build_graph(probe, actual_rgb, move: bool):
     g.add_node(
         "rgb_match",
         {"pos": {"x": probe[0], "y": probe[1]}, "color": list(actual_rgb)},
-        node_id="hit", name="색상 검색 (맞는 색)",
+        node_id="hit", name="색상 일치 (맞는 색)",
     )
     g.add_node(
         "rgb_match",
         {"pos": {"x": probe[0], "y": probe[1]}, "color": [1, 2, 3]},
-        node_id="miss", name="색상 검색 (틀린 색)",
+        node_id="miss", name="색상 일치 (틀린 색)",
     )
 
     g.add_node("delay", {"seconds": 0.35}, node_id="wait", name="대기 0.35초")

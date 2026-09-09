@@ -239,7 +239,7 @@ class ScreenPicker(QDialog):
         moment = "지금 화면" if back <= 0 else f"{back:.1f}초 전"
         painter.drawText(QRect(box.x(), box.y() + 7, box.width(), 20),
                          Qt.AlignCenter,
-                         moment + "  ·  ← → 로 한 장씩  ·  다가가면 비켜납니다")
+                         moment + "  ·  ← →  또는  A D  로 한 장씩")
 
         track = self._track_rect(box)
         painter.setPen(Qt.NoPen)
@@ -292,10 +292,12 @@ class ScreenPicker(QDialog):
         if key == Qt.Key_Escape:
             self.reject()
             return
-        if key == Qt.Key_Left:
+        # 왼손만으로도 되감을 수 있게 A·D 를 나란히 둔다. 오른손은 고를 자리를
+        # 겨누고 있어 화살표까지 오가기 번거롭다.
+        if key in (Qt.Key_Left, Qt.Key_A):
             self.show_frame(self.index - 1)
             return
-        if key == Qt.Key_Right:
+        if key in (Qt.Key_Right, Qt.Key_D):
             self.show_frame(self.index + 1)
             return
         if key == Qt.Key_Home:
@@ -334,8 +336,8 @@ class RegionPicker(ScreenPicker):
 
     MIN_SIDE = 4             # 이보다 작으면 잘못 누른 것으로 본다
 
-    def __init__(self, parent=None, frames: Optional[FrameStore] = None):
-        super().__init__(parent, frames)
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.drag_from: Optional[QPoint] = None
         self.region: Optional[Tuple[int, int, int, int]] = None
 
@@ -371,7 +373,6 @@ class RegionPicker(ScreenPicker):
         if box is None:
             self._draw_crosshair(painter, self.cursor_at)
         self._draw_hint(painter)
-        self._draw_timeline(painter)
 
     def _draw_size(self, painter: QPainter, box: QRect) -> None:
         text = f"{box.width()} × {box.height()}"
@@ -431,10 +432,13 @@ class RegionPicker(ScreenPicker):
         self.accept()
 
 
-def pick_region(parent=None, frames: Optional[FrameStore] = None
-                ) -> Optional[Tuple[int, int, int, int]]:
-    """주 모니터를 덮어 영역을 고르게 한다. (x1, y1, x2, y2) 또는 None."""
-    picker = RegionPicker(parent, frames)
+def pick_region(parent=None) -> Optional[Tuple[int, int, int, int]]:
+    """주 모니터를 덮어 영역을 고르게 한다. (x1, y1, x2, y2) 또는 None.
+
+    영역은 되감아 고르지 않는다. 좌표 하나와 달리 끌어서 잡는 동작이라,
+    담아둔 장 사이를 오가는 것과 겹쳐 손이 꼬인다.
+    """
+    picker = RegionPicker(parent)
     if picker.exec() == QDialog.Accepted:
         return picker.region
     return None

@@ -25,15 +25,18 @@
 """
 from __future__ import annotations
 
+import math
 import os
+import queue
 import shutil
 import tempfile
+import threading
 import time
 from typing import List, Optional
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QObject, QRectF, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QPushButton
 
@@ -48,9 +51,13 @@ TMP_PREFIX = "clikey-rewind-"
 #: 앱이 갑자기 꺼지면 임시 폴더가 남는다. 다음에 담을 때 이보다 오래된 것을 쓸어낸다.
 STALE_SECONDS = 3600
 
-#: PNG 압축 세기(0~9). 1 이면 한 장에 40ms 안쪽이라 5fps 예산에 든다. 올려봐야
-#: 크기는 조금 줄고 시간은 몇 배가 되어, 담는 쪽에서는 남는 장사가 아니다.
+#: PNG 압축 세기(0~9). 올려봐야 크기는 조금 줄고 시간은 몇 배가 된다.
 PNG_LEVEL = 1
+
+#: 인코딩을 기다리는 장을 몇 개까지 쌓아둘지. 한 장이 2560x1440 에서 11MB 라
+#: 무작정 쌓으면 메모리가 그만큼 불어난다. 넘치면 그 박자는 아예 찍지 않는다 —
+#: 어차피 뒤에서 소화하지 못하는 속도다.
+QUEUE_MAX = 3
 
 
 def _pixels(pixmap: QPixmap) -> Optional[np.ndarray]:
@@ -146,6 +153,17 @@ class FrameStore:
         self._paths.append(path)
         return True
 
+    def drop_last(self) -> None:
+        """마지막 한 장을 목록에서 뺀다.
+
+        파일은 지우지 않는다. 앞 장과 같은 화면이면 여러 자리가 같은 파일을
+        가리키므로, 지웠다가는 멀쩡한 앞 장이 함께 사라진다.
+        """
+        if self._paths:
+            self._paths.pop()
+            self._cached = None
+            self._at = -1
+
     def repeat_last(self) -> bool:
         """앞 장과 같은 화면 — 파일을 새로 쓰지 않고 그것을 다시 가리킨다."""
         if not self._paths:
@@ -170,6 +188,11 @@ class FrameRecorder(QObject):
     """주 모니터를 일정 간격으로 담는다. 정해진 장수를 채우면 스스로 멈춘다.
 
     피커가 주 모니터만 다루므로(ui_qt.picker) 여기서도 주 모니터만 담는다.
+
+    PNG 로 만드는 데 2560x1440 한 장이 200ms 를 넘게 먹는다. 담는 간격보다 긴
+    일이라 UI 스레드에서 하면 화면이 그동안 멈춘다 — 깜박임도 초도 뚝뚝 끊기고,
+    정작 5fps 도 못 낸다. 그래서 화면을 떠오는 것만 여기서 하고(화면은 UI
+    스레드에서만 뜰 수 있다), 견주고 만들어 쓰는 일은 뒷일꾼에게 넘긴다.
     """
 
     #: 0.0 ~ 1.0. 게이지를 채우는 쪽에서 받는다.
@@ -178,11 +201,30 @@ class FrameRecorder(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._store: Optional[FrameStore] = None
-        #: 앞 장의 픽셀. 같은 화면인지 견주려고 한 장만 들고 있는다.
-        self._last: Optional[np.ndarray] = None
+        self._queue: Optional[queue.Queue] = None
+        self._worker: Optional[threading.Thread] = None
+        #: 떠온 장수. 뒷일꾼이 아직 소화하지 못했어도 이만큼은 담긴 것으로 센다.
+        self._taken = 0
         self._timer = QTimer(self)
         self._timer.setInterval(INTERVAL_MS)
         self._timer.timeout.connect(self._tick)
+
+    # ------------------------------------------------------------ 뒷일꾼
+
+    @staticmethod
+    def _work(store: FrameStore, jobs: "queue.Queue") -> None:
+        """떠온 장을 견주고 PNG 로 만들어 쓴다. 이 스레드만 store 를 건드린다."""
+        last: Optional[np.ndarray] = None
+        while True:
+            bgr = jobs.get()
+            if bgr is None:              # 그만하라는 신호
+                jobs.task_done()
+                return
+            if last is not None and np.array_equal(bgr, last):
+                store.repeat_last()      # 멈춘 화면 — 파일을 늘리지 않는다
+            elif store.write(bgr):
+                last = bgr
+            jobs.task_done()
 
     def start(self) -> None:
         self.discard()
@@ -192,27 +234,67 @@ class FrameRecorder(QObject):
         except OSError:
             folder = None
         self._store = FrameStore(folder)
+        self._queue = queue.Queue(maxsize=QUEUE_MAX)
+        self._taken = 0
+        self._worker = threading.Thread(
+            target=self._work, args=(self._store, self._queue),
+            daemon=True, name="clikey-rewind")
+        self._worker.start()
         self._tick()            # 누른 그 순간을 놓치지 않는다
         self._timer.start()
 
     def _tick(self) -> None:
         screen = QGuiApplication.primaryScreen()
-        if screen is None or self._store is None:
+        if screen is None or self._store is None or self._queue is None:
+            return
+        # 뒷일꾼이 밀려 있으면 이 박자는 건너뛴다. 떠와 봐야 쌓이기만 하고
+        # 그만큼 메모리를 먹는다.
+        if self._queue.full():
             return
 
         bgr = _pixels(screen.grabWindow(0))
         if bgr is None:
             return
+        self._queue.put(bgr)
+        self._taken += 1
 
-        if self._last is not None and np.array_equal(bgr, self._last):
-            self._store.repeat_last()       # 멈춘 화면 — 파일을 늘리지 않는다
-        elif self._store.write(bgr):
-            self._last = bgr
-
-        kept = len(self._store)
-        self.progress.emit(kept / MAX_FRAMES)
-        if kept >= MAX_FRAMES:
+        self.progress.emit(self._taken / MAX_FRAMES)
+        if self._taken >= MAX_FRAMES:
             self._timer.stop()
+
+    def recapture_last(self) -> None:
+        """마지막 한 장을 지금 화면으로 다시 찍는다.
+
+        담기는 글씨가 바뀌기 전에 이루어지므로, 마지막 장에는 한 박자 전의
+        버튼이 찍혀 있다. 그 장으로 피커가 열리면 다 담아놓고도 "9.8초 담는 중"
+        이 멈춰 있는 꼴이라, 마무리 모습으로 한 번 갈아 끼운다.
+        """
+        screen = QGuiApplication.primaryScreen()
+        if screen is None or self._store is None:
+            return
+        bgr = _pixels(screen.grabWindow(0))
+        if bgr is None:
+            return
+        self._drain()                      # 뒷일꾼이 밀려 있으면 먼저 비운다
+        self._store.drop_last()
+        if not self._store.write(bgr):
+            self._store.repeat_last()      # 못 썼으면 있던 것으로 되돌린다
+
+    def _drain(self, patience: float = 10.0) -> None:
+        """뒷일꾼이 밀린 것을 다 소화할 때까지 기다린다.
+
+        넘기기 전에 반드시 거친다. 아직 만들지 못한 장이 남은 채로 넘기면
+        되감을 때 그 자리가 비어 있다.
+
+        버릴 때는 결과가 필요 없으니 오래 붙들지 않는다. 파일을 쓰는 중에
+        폴더를 지워도 rmtree 가 그냥 넘어간다.
+        """
+        if self._queue is None or self._worker is None:
+            return
+        self._queue.put(None)              # 다 하면 그만두라고 일러둔다
+        self._worker.join(patience)
+        self._queue = None
+        self._worker = None
 
     def stop(self) -> FrameStore:
         """멈추고 담아둔 묶음을 넘긴다. 넘긴 뒤로는 여기서 들고 있지 않는다.
@@ -220,80 +302,149 @@ class FrameRecorder(QObject):
         지우는 몫도 함께 넘어간다 — 받은 쪽이 다 쓰고 discard() 해야 한다.
         """
         self._timer.stop()
+        self._drain()
         store = self._store or FrameStore()
         self._store = None
-        self._last = None
+        self._taken = 0
         return store
 
     def discard(self) -> None:
         """담아둔 것을 버린다. 임시 폴더까지 지운다."""
         self._timer.stop()
+        self._drain(1.0)
         if self._store is not None:
             self._store.discard()
             self._store = None
-        self._last = None
+        self._taken = 0
 
 
 class HoldToRecordButton(QPushButton):
     """꾹 누르고 있는 동안 화면을 담고, 손을 떼면 그 묶음을 넘기는 버튼.
 
-    누르는 동안 얼마나 담겼는지 버튼 자체에 게이지로 채워 보여준다 — 화면은
-    그대로인데 무언가 돌고 있으면 사람은 멈춘 줄로 안다.
+    담기는 동안에는 붉은 점이 숨 쉬듯 깜박이고 몇 초가 쌓였는지 센다. 차오르는
+    막대를 두었더니 끝까지 눌러야 하는 것처럼 읽혔다 — 채울 목표가 있는 모양이라
+    그렇다. 녹화는 목표가 없다. 필요한 데까지 담고 떼면 그만이라, 지금 담기고
+    있다는 것과 얼마나 쌓였는지만 보여준다.
 
-    툭 누르고 떼면 한 장만 담긴다. 그때는 되감을 것이 없으니 예전처럼 지금
-    화면 하나로 고르게 된다. 끝까지 누르고 있을 일은 드물다 — 필요한 데까지만
-    담고 떼면 된다.
+    끝(10초)은 다다랐을 때에만 말한다. 미리 내걸면 그것이 다시 목표가 된다.
+    그리고 다 차면 손을 떼기를 기다리지 않고 그대로 넘어간다 — 더 담기지도
+    않는데 붙들고 있으면 멈춘 것처럼 보인다.
+
+    툭 누르고 떼면 한 장만 담겨, 예전처럼 지금 화면 하나로 고르게 된다.
     """
 
     #: FrameStore — 담은 화면. 받은 쪽이 다 쓰고 discard() 해야 한다.
     recorded = Signal(object)
 
+    DOT_R = 4               # 붉은 점 반지름
+    DOT_LEFT = 14           # 왼쪽에서 띄우는 만큼
+    PULSE_MS = 16           # 다시 그리는 간격 — 60fps 라야 매끄럽다
+    PULSE_SECONDS = 1.1     # 한 번 숨 쉬는 데 걸리는 시간
+    NEAR_END = 2.0          # 끝이 이만큼 남았을 때부터 알려준다
+    FULL_PAUSE_MS = 320     # 다 찼다고 보여주고 넘어가기까지 두는 틈
+
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
         self._label = text
-        self._ratio = 0.0
+        self._frames = 0
         self._holding = False
+        self._since = 0.0
         self._recorder = FrameRecorder(self)
         self._recorder.progress.connect(self._on_progress)
+
+        # 담는 간격(200ms)으로는 깜박임도 초도 뚝뚝 끊긴다. 그리는 것만 따로,
+        # 훨씬 촘촘히 돌린다.
+        self._pulse = QTimer(self)
+        self._pulse.setInterval(self.PULSE_MS)
+        self._pulse.timeout.connect(self._animate)
 
     # ------------------------------------------------------------ 담기
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and not self._holding:
             self._holding = True
-            self._ratio = 0.0
-            self.setText("담는 중 — 손을 떼면 멈춤")
+            self._frames = 0
+            self._since = time.monotonic()
             self._recorder.start()
+            self._pulse.start()
+            self._retitle()
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
-        if event.button() != Qt.LeftButton or not self._holding:
+        if event.button() == Qt.LeftButton:
+            self._finish()
+
+    def _finish(self) -> None:
+        """담기를 마치고 묶음을 넘긴다. 손을 떼서든, 다 차서든 여기로 온다."""
+        if not self._holding:
             return
-        self._holding = False
+        self._rest()
+        self.setDown(False)         # 다 차서 왔으면 아직 눌려 있다
         store = self._recorder.stop()
-        self.setText(self._label)
-        self._ratio = 0.0
+        # 받는 쪽이 곧바로 피커를 띄운다. 마우스 사건이나 타이머 안에서 창을
+        # 열면 그 자리에 이벤트 루프가 하나 더 얹히므로, 여기서 빠져나온 뒤에
+        # 넘긴다.
+        QTimer.singleShot(0, lambda: self.recorded.emit(store))
+
+    def _animate(self) -> None:
+        """깜박임과 초를 한 박자에 굴린다."""
+        self._retitle()
         self.update()
-        self.recorded.emit(store)
 
     def _on_progress(self, ratio: float) -> None:
-        self._ratio = ratio
-        if ratio >= 1.0:
-            self.setText(f"{MAX_SECONDS:g}초를 다 담았습니다")
+        self._frames = round(ratio * MAX_FRAMES)
+        self._retitle()
+        if self._frames >= MAX_FRAMES:
+            # 곧바로 넘기면 마지막 장에 한 박자 전 글씨(9.8초)가 찍혀 있다.
+            # 다 찼다고 그려진 뒤 그 모습으로 마지막 장을 다시 찍고 넘어간다.
+            self.repaint()
+            self._recorder.recapture_last()
+            QTimer.singleShot(self.FULL_PAUSE_MS, self._finish)
+
+    def _elapsed(self) -> float:
+        """보여줄 초. 시계로 세되 실제 담긴 것보다 앞서지는 않는다.
+
+        장수로만 세면 0.2초씩 건너뛰어 뚝뚝 끊긴다. 시계로 세면 매끄럽지만,
+        담는 것이 밀리는 화면에서는 있지도 않은 길이를 말하게 된다. 그래서
+        시계로 세되 담긴 데까지로 묶는다 — 평소에는 시계가 앞서지 않아 그대로
+        흐르고, 밀릴 때만 붙잡힌다.
+        """
+        wall = time.monotonic() - self._since
+        return max(0.0, min(wall, (self._frames + 1) / FPS, MAX_SECONDS))
+
+    def _retitle(self) -> None:
+        if self._frames >= MAX_FRAMES:
+            text = f"{MAX_SECONDS:g}초를 다 담았습니다"
+        else:
+            seconds = self._elapsed()
+            text = f"{seconds:.1f}초 담는 중"
+            if MAX_SECONDS - seconds <= self.NEAR_END:
+                text += f" · {MAX_SECONDS:g}초까지"
+        # 60fps 로 불리지만 글자는 0.1초에 한 번만 바뀐다. 같은 글을 다시
+        # 넣으면 버튼이 그때마다 다시 자리를 잡는다.
+        if text != self.text():
+            self.setText(text)
+
+    def _rest(self) -> None:
+        self._holding = False
+        self._frames = 0
+        self._pulse.stop()
+        self.setText(self._label)
         self.update()
 
     def hideEvent(self, event):
         # 패널이 다시 그려지며 사라질 때 담다 만 것을 들고 가지 않는다
-        self._holding = False
+        if self._holding:
+            self._rest()
         self._recorder.discard()
         super().hideEvent(event)
 
-    # ------------------------------------------------------------ 게이지
+    # ------------------------------------------------------------ 붉은 점
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if self._ratio <= 0:
+        if not self._holding:
             return
 
         painter = QPainter(self)
@@ -304,11 +455,24 @@ class HoldToRecordButton(QPushButton):
         path.addRoundedRect(QRectF(self.rect()), T.RADIUS_CTRL, T.RADIUS_CTRL)
         painter.setClipPath(path)
 
-        width = self.width() * min(self._ratio, 1.0)
+        # 담기고 있다는 것을 아주 옅은 바탕으로도 한 번 더 말해둔다. 칠은
+        # 버튼 전체에 고르게 — 어디까지 찼다는 뜻으로 읽히지 않게 한다.
+        wash = QColor(T.DANGER)
+        wash.setAlpha(16)
+        painter.fillRect(QRectF(self.rect()), wash)
 
-        tint = QColor(T.ACCENT)
-        tint.setAlpha(34)
-        painter.fillRect(QRectF(0, 0, width, self.height()), tint)
+        full = self._frames >= MAX_FRAMES
+        if full:
+            # 다 담겼으면 깜박임을 멈춘다 — 더 눌러도 늘지 않는다는 뜻이다
+            alpha = 255
+        else:
+            phase = ((time.monotonic() - self._since) % self.PULSE_SECONDS
+                     / self.PULSE_SECONDS)
+            alpha = int(120 + 135 * (0.5 + 0.5 * math.cos(2 * math.pi * phase)))
 
-        # 아래쪽 한 줄. 옅은 칠만으로는 얼마나 찼는지 눈에 잘 안 들어온다.
-        painter.fillRect(QRectF(0, self.height() - 3, width, 3), QColor(T.ACCENT))
+        dot = QColor(T.DANGER)
+        dot.setAlpha(alpha)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(dot)
+        painter.drawEllipse(
+            QPointF(self.DOT_LEFT, self.height() / 2), self.DOT_R, self.DOT_R)

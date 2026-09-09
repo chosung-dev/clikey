@@ -193,7 +193,7 @@ class PointField(QWidget):
         self.sources = list(sources or [])
         #: 캔버스에서 직접 고르게 하는 편집기 쪽 기능
         self.pick = pick
-        #: 색상 검색 노드에서는 좌표를 집을 때 그 자리 색도 함께 담는다
+        #: 색상 일치 노드에서는 좌표를 집을 때 그 자리 색도 함께 담는다
         self.also_color = also_color
 
         lay = QVBoxLayout(self)
@@ -258,7 +258,7 @@ class PointField(QWidget):
         capture.recorded.connect(self._capture)
         lay.addWidget(capture)
 
-        hold = QLabel("꾹 누르고 있으면 그동안의 화면을 담아 되감아 볼 수 있습니다")
+        hold = QLabel("꾹 누르면 되감아 고를 수 있습니다")
         hold.setWordWrap(True)
         hold.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
         lay.addWidget(hold)
@@ -303,7 +303,7 @@ class PointField(QWidget):
             edit.setText(edit._format(self.pos[axis]))
             edit._last = edit.text()
         self.on_change(dict(self.pos))
-        # 색상 검색라면 그 자리의 색까지 한 번에 담는다
+        # 색상 일치라면 그 자리의 색까지 한 번에 담는다
         if self.also_color:
             self.also_color(list(picked.rgb))
 
