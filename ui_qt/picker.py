@@ -9,6 +9,11 @@
 여기서 집은 자리와 매크로가 누르는 자리가 달라지는데, 주 모니터로 한정하면
 그 어긋남이 아예 생기지 않는다.
 
+미리 담아둔 화면(ui_qt.rewind)을 건네면 그 여러 장 사이를 오갈 수 있다.
+멈춘 화면에는 이미 지나가 버린 것이 있기 마련이라, 한 장씩 되감아 필요한
+순간을 찾은 뒤 그 위에서 고른다. 한 장만 건네거나 아무것도 건네지 않으면
+지금 화면 하나로 고르는, 예전 그대로다.
+
     result = pick_from_screen(parent)
     if result:
         print(result.x, result.y, result.rgb)
@@ -16,7 +21,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import (
@@ -29,10 +34,19 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QDialog
 
+from ui_qt import theme as T
+from ui_qt.rewind import FPS
+
 ZOOM = 8                 # 확대경 배율
 ZOOM_PIXELS = 15         # 확대경에 보이는 원본 픽셀 수 (한 변)
 MAG_SIZE = ZOOM * ZOOM_PIXELS
 MAG_GAP = 22             # 커서와 확대경 사이 간격
+
+TL_WIDTH = 460           # 되감기 막대
+TL_HEIGHT = 54
+TL_BOTTOM = 34           # 화면 아래에서 띄우는 만큼
+TL_PAD = 20              # 막대 안쪽 여백
+TL_NEAR = 48             # 이만큼 가까워지면 막대가 비켜선다
 
 
 @dataclass
@@ -43,14 +57,24 @@ class PickResult:
 
 
 class ScreenPicker(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, frames: Optional[Sequence] = None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint
                             | Qt.WindowStaysOnTopHint)
         self.setCursor(Qt.CrossCursor)
         self.setMouseTracking(True)
 
-        self.shot, self.origin = self._grab_main_screen()
+        #: 오래된 것이 앞, 가장 최근이 뒤. 비어 오면 지금 화면을 한 장 찍는다.
+        self.frames: List = [f for f in (frames or [])
+                             if f is not None and not f.isNull()]
+        if self.frames:
+            self.origin = QGuiApplication.primaryScreen().geometry().topLeft()
+        else:
+            shot, self.origin = self._grab_main_screen()
+            self.frames = [shot]
+
+        self.index = len(self.frames) - 1        # 가장 최근 = 지금 화면
+        self.shot = self.frames[self.index]
         self.setGeometry(QRect(self.origin, self.shot.deviceIndependentSize().toSize()))
 
         self.cursor_at = QPoint(0, 0)
@@ -63,6 +87,48 @@ class ScreenPicker(QDialog):
         """주 모니터만 한 장 찍는다."""
         screen = QGuiApplication.primaryScreen()
         return screen.grabWindow(0), screen.geometry().topLeft()
+
+    # ------------------------------------------------------------ 되감기
+
+    def show_frame(self, index: int) -> None:
+        """그 장으로 갈아 끼운다.
+
+        확대경도 색도 self.shot 하나만 보므로 여기만 바꾸면 함께 따라온다.
+        """
+        index = min(max(index, 0), len(self.frames) - 1)
+        if index == self.index:
+            return
+        self.index = index
+        self.shot = self.frames[index]
+        self.update()
+
+    def timeline_rect(self) -> Optional[QRect]:
+        """되감을 것이 없으면 막대도 없다."""
+        if len(self.frames) < 2:
+            return None
+        width = min(TL_WIDTH, self.width() - 80)
+        return QRect((self.width() - width) // 2,
+                     self.height() - TL_BOTTOM - TL_HEIGHT, width, TL_HEIGHT)
+
+    @staticmethod
+    def _track_rect(box: QRect) -> QRect:
+        return QRect(box.x() + TL_PAD, box.y() + 34,
+                     box.width() - TL_PAD * 2, 4)
+
+    def timeline_shown(self) -> bool:
+        """커서가 가까이 오면 막대를 감춘다.
+
+        막대가 덮은 자리도 골라야 할 자리다. 비켜주지 않으면 화면 아래쪽
+        좌표는 집을 길이 없다. 그래서 다가가면 물러나고, 멀어지면 돌아온다.
+
+        막대를 끌어 되감는 길은 두지 않았다 — 다가가면 사라지는 것을 끌
+        수는 없다. 되감기는 화살표 키로 한다.
+        """
+        box = self.timeline_rect()
+        if box is None:
+            return False
+        near = box.adjusted(-TL_NEAR, -TL_NEAR, TL_NEAR, TL_NEAR)
+        return not near.contains(self.cursor_at)
 
     # ------------------------------------------------------------ 값 읽기
 
@@ -90,6 +156,7 @@ class ScreenPicker(QDialog):
         self._draw_crosshair(painter, local)
         self._draw_magnifier(painter, local, rgb)
         self._draw_hint(painter)
+        self._draw_timeline(painter)
 
     def _draw_crosshair(self, painter: QPainter, at: QPoint) -> None:
         pen = QPen(QColor(58, 91, 199, 170), 1)
@@ -152,6 +219,39 @@ class ScreenPicker(QDialog):
             f"RGB {rgb[0]}, {rgb[1]}, {rgb[2]}",
         )
 
+    def _draw_timeline(self, painter: QPainter) -> None:
+        if not self.timeline_shown():
+            return
+        box = self.timeline_rect()
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(27, 30, 35, 220))
+        painter.drawRoundedRect(box, 12, 12)
+
+        back = (len(self.frames) - 1 - self.index) / FPS
+        font = QFont(painter.font())
+        font.setPointSizeF(9.5)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255))
+        moment = "지금 화면" if back <= 0 else f"{back:.1f}초 전"
+        painter.drawText(QRect(box.x(), box.y() + 7, box.width(), 20),
+                         Qt.AlignCenter,
+                         moment + "  ·  ← → 로 한 장씩  ·  다가가면 비켜납니다")
+
+        track = self._track_rect(box)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 60))
+        painter.drawRoundedRect(track, 2, 2)
+
+        span = max(len(self.frames) - 1, 1)
+        done = int(track.width() * self.index / span)
+        painter.setBrush(QColor(T.ACCENT))
+        painter.drawRoundedRect(
+            QRect(track.x(), track.y(), done, track.height()), 2, 2)
+
+        painter.setBrush(QColor(255, 255, 255))
+        painter.drawEllipse(QPoint(track.x() + done, track.center().y()), 6, 6)
+
     def _draw_hint(self, painter: QPainter) -> None:
         text = "클릭해서 이 지점 선택  ·  Esc 취소"
         font = QFont(painter.font())
@@ -185,8 +285,21 @@ class ScreenPicker(QDialog):
         self.accept()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape:
+        key = event.key()
+        if key == Qt.Key_Escape:
             self.reject()
+            return
+        if key == Qt.Key_Left:
+            self.show_frame(self.index - 1)
+            return
+        if key == Qt.Key_Right:
+            self.show_frame(self.index + 1)
+            return
+        if key == Qt.Key_Home:
+            self.show_frame(0)
+            return
+        if key == Qt.Key_End:
+            self.show_frame(len(self.frames) - 1)
             return
         super().keyPressEvent(event)
 
@@ -197,9 +310,13 @@ class ScreenPicker(QDialog):
         self.setFocus()
 
 
-def pick_from_screen(parent=None) -> Optional[PickResult]:
-    """주 모니터를 덮어 좌표·색을 고르게 한다. 취소하면 None."""
-    picker = ScreenPicker(parent)
+def pick_from_screen(parent=None,
+                     frames: Optional[Sequence] = None) -> Optional[PickResult]:
+    """주 모니터를 덮어 좌표·색을 고르게 한다. 취소하면 None.
+
+    frames 를 건네면 그 사이를 되감아 가며 고를 수 있다.
+    """
+    picker = ScreenPicker(parent, frames)
     if picker.exec() == QDialog.Accepted:
         return picker.result
     return None
@@ -213,8 +330,8 @@ class RegionPicker(ScreenPicker):
 
     MIN_SIDE = 4             # 이보다 작으면 잘못 누른 것으로 본다
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, parent=None, frames: Optional[Sequence] = None):
+        super().__init__(parent, frames)
         self.drag_from: Optional[QPoint] = None
         self.region: Optional[Tuple[int, int, int, int]] = None
 
@@ -250,6 +367,7 @@ class RegionPicker(ScreenPicker):
         if box is None:
             self._draw_crosshair(painter, self.cursor_at)
         self._draw_hint(painter)
+        self._draw_timeline(painter)
 
     def _draw_size(self, painter: QPainter, box: QRect) -> None:
         text = f"{box.width()} × {box.height()}"
@@ -309,9 +427,10 @@ class RegionPicker(ScreenPicker):
         self.accept()
 
 
-def pick_region(parent=None) -> Optional[Tuple[int, int, int, int]]:
+def pick_region(parent=None, frames: Optional[Sequence] = None
+                ) -> Optional[Tuple[int, int, int, int]]:
     """주 모니터를 덮어 영역을 고르게 한다. (x1, y1, x2, y2) 또는 None."""
-    picker = RegionPicker(parent)
+    picker = RegionPicker(parent, frames)
     if picker.exec() == QDialog.Accepted:
         return picker.region
     return None

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from core import hotkeys
 from ui_qt import theme as T
+from ui_qt.rewind import HoldToRecordButton
 
 Setter = Callable[[Any], None]
 
@@ -247,13 +248,20 @@ class PointField(QWidget):
             row.addWidget(wrap, 1)
         lay.addLayout(row)
 
-        capture = QPushButton("화면에서 좌표·색상 집기" if self.also_color
-                              else "화면에서 좌표 집기")
+        # 꾹 누르고 있는 동안 화면을 담아, 멈춘 뒤 되감아 고를 수 있게 한다.
+        # 툭 누르고 떼면 한 장만 담겨 예전처럼 지금 화면에서 고르게 된다.
+        capture = HoldToRecordButton("화면에서 좌표·색상 집기" if self.also_color
+                                     else "화면에서 좌표 집기")
         capture.setObjectName("GhostBtn")
         capture.setFixedHeight(30)
         capture.setCursor(Qt.PointingHandCursor)
-        capture.clicked.connect(self._capture)
+        capture.recorded.connect(self._capture)
         lay.addWidget(capture)
+
+        hold = QLabel("꾹 누르고 있으면 그동안의 화면을 담아 되감아 볼 수 있습니다")
+        hold.setWordWrap(True)
+        hold.setStyleSheet(f"font-size: 11px; color: {T.INK_4};")
+        lay.addWidget(hold)
 
         if self.sources:
             follow = QPushButton("찾은 좌표 따라가기")
@@ -278,10 +286,15 @@ class PointField(QWidget):
         self.pos[axis] = int(value)
         self.on_change(dict(self.pos))
 
-    def _capture(self) -> None:
+    def _capture(self, frames=None) -> None:
         from ui_qt.picker import pick_from_screen
 
-        picked = pick_from_screen(self.window())
+        try:
+            picked = pick_from_screen(self.window(), frames)
+        finally:
+            # 다 쓴 화면은 그 자리에서 버린다 — 1080p 한 장이 8MB 가까이 된다
+            if frames:
+                frames.clear()
         if picked is None:
             return
         self.pos = {"x": picked.x, "y": picked.y}
