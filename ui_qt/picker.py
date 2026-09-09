@@ -47,6 +47,7 @@ TL_HEIGHT = 54
 TL_BOTTOM = 34           # 화면 아래에서 띄우는 만큼
 TL_PAD = 20              # 막대 안쪽 여백
 TL_NEAR = 48             # 이만큼 가까워지면 막대가 비켜선다
+TL_LINE = 18             # 알릴 말이 있을 때 막대가 늘어나는 만큼
 
 
 @dataclass
@@ -105,17 +106,27 @@ class ScreenPicker(QDialog):
         self.shot = shot
         self.update()
 
+    def cut_short(self) -> bool:
+        """자리가 모자라 담다 말았는가. 그 사정을 막대에 적어야 한다.
+
+        열두 장뿐인 것이 원래 그런 것인지 무슨 일이 있었던 것인지, 보는
+        사람은 알 길이 없다.
+        """
+        return bool(getattr(self.store, "cut_short", False))
+
     def timeline_rect(self) -> Optional[QRect]:
         """되감을 것이 없으면 막대도 없다."""
         if len(self.store) < 2:
             return None
         width = min(TL_WIDTH, self.width() - 80)
+        height = TL_HEIGHT + (TL_LINE if self.cut_short() else 0)
         return QRect((self.width() - width) // 2,
-                     self.height() - TL_BOTTOM - TL_HEIGHT, width, TL_HEIGHT)
+                     self.height() - TL_BOTTOM - height, width, height)
 
     @staticmethod
     def _track_rect(box: QRect) -> QRect:
-        return QRect(box.x() + TL_PAD, box.y() + 34,
+        # 막대가 길어져도 줄은 늘 아래에 붙어 있게 밑에서부터 잰다
+        return QRect(box.x() + TL_PAD, box.bottom() - 19,
                      box.width() - TL_PAD * 2, 4)
 
     def timeline_shown(self) -> bool:
@@ -240,6 +251,14 @@ class ScreenPicker(QDialog):
         painter.drawText(QRect(box.x(), box.y() + 7, box.width(), 20),
                          Qt.AlignCenter,
                          moment + "  ·  ← →  또는  A D  로 한 장씩")
+
+        if self.cut_short():
+            # 흰 글씨로 나란히 두면 안내인지 사정인지 섞인다. 붉은 기를 준다.
+            painter.setPen(QColor(255, 176, 168))
+            painter.drawText(QRect(box.x(), box.y() + 7 + TL_LINE,
+                                   box.width(), 20),
+                             Qt.AlignCenter,
+                             "용량이 모자라 여기까지만 담겼습니다")
 
         track = self._track_rect(box)
         painter.setPen(Qt.NoPen)

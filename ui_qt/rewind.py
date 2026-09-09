@@ -20,6 +20,10 @@
 
 담아둔 것은 좌표를 고르고 나면 폴더째 지운다.
 
+자리가 모자라면 그 자리에서 멈추고 담긴 데까지만 넘긴다. 4.2초짜리 되감기도
+쓸모가 있다 — 실패가 아니라 짧아진 것뿐이다. 못 쓴 장을 조용히 건너뛰면
+시간축이 어긋나 "2.4초 전" 이 실제로는 8초 전 화면이 된다.
+
     button = HoldToRecordButton("화면에서 좌표 집기")
     button.recorded.connect(self._capture)      # store: FrameStore
 """
@@ -54,6 +58,18 @@ STALE_SECONDS = 3600
 #: PNG 압축 세기(0~9). 올려봐야 크기는 조금 줄고 시간은 몇 배가 된다.
 PNG_LEVEL = 1
 
+#: 임시 폴더가 앉은 드라이브에 이만큼은 남겨둔다. 우리가 끝까지 밀어붙이면
+#: 윈도우 자체가 곤란해진다 — 그 전에 물러서는 편이 낫다.
+DISK_FLOOR = 500 * 1024 * 1024          # 500MB
+
+#: 한 번 누르는 데 쓸 수 있는 최대. 4K 최악(약 1.2GB)보다 조금 위라 여느
+#: 사용은 걸리지 않고 폭주만 막힌다.
+DISK_BUDGET = 1536 * 1024 * 1024        # 1.5GB
+
+#: 시작하려면 적어도 이만큼은 있어야 한다. 최악(4K 50장이면 1.2GB)을 미리
+#: 요구하면, 정작 6MB 면 끝날 일에 멀쩡한 기능을 막게 된다.
+MIN_START_FRAMES = FPS * 2              # 2초분
+
 #: 인코딩을 기다리는 장을 몇 개까지 쌓아둘지. 한 장이 2560x1440 에서 11MB 라
 #: 무작정 쌓으면 메모리가 그만큼 불어난다. 넘치면 그 박자는 아예 찍지 않는다 —
 #: 어차피 뒤에서 소화하지 못하는 속도다.
@@ -72,6 +88,32 @@ def _pixels(pixmap: QPixmap) -> Optional[np.ndarray]:
     height, width, stride = image.height(), image.width(), image.bytesPerLine()
     flat = np.frombuffer(image.constBits(), dtype=np.uint8, count=stride * height)
     return flat.reshape(height, stride)[:, :width * 3].reshape(height, width, 3).copy()
+
+
+def _frame_bytes() -> int:
+    """한 장이 최악일 때 차지하는 크기.
+
+    PNG 는 무손실이라 원본보다 크게 나오지 않는다. 그래서 무압축 크기를
+    상한으로 잡으면 모자라는 일이 없다.
+    """
+    screen = QGuiApplication.primaryScreen()
+    if screen is None:
+        return 0
+    geometry, ratio = screen.geometry(), screen.devicePixelRatio()
+    return int(geometry.width() * ratio) * int(geometry.height() * ratio) * 3
+
+
+def _free_bytes(path: Optional[str] = None) -> int:
+    """그 자리가 앉은 드라이브에 남은 바이트. 알 수 없으면 0."""
+    try:
+        return shutil.disk_usage(path or tempfile.gettempdir()).free
+    except OSError:
+        return 0
+
+
+def room_to_start() -> bool:
+    """담기 시작할 만한 자리가 있는가. 2초분이면 시작한다."""
+    return _free_bytes() - DISK_FLOOR > _frame_bytes() * MIN_START_FRAMES
 
 
 def _sweep_stale() -> None:
@@ -106,6 +148,10 @@ class FrameStore:
     def __init__(self, folder: Optional[str] = None):
         self._folder = folder
         self._paths: List[str] = []
+        #: 자리가 모자라 끊겼는가. 되감기 막대가 그 사정을 알린다.
+        self.cut_short = False
+        #: 여태 쓴 바이트. 우리 몫을 넘지 않았는지 보는 데 쓴다.
+        self._written = 0
         #: 파일 없이 들고 있는 한 장. 담지 않고 지금 화면만 볼 때 쓴다.
         self._live: Optional[QPixmap] = None
         self._at = -1
@@ -136,6 +182,18 @@ class FrameStore:
 
     # ------------------------------------------------------------ 담기
 
+    def room_left(self) -> bool:
+        """한 장 더 쓸 자리가 있는가.
+
+        드라이브에 남은 것과 우리가 쓴 양을 함께 본다. 자리가 넉넉해도 한 번
+        누르는 데 몇 기가를 쓰는 것은 과하다.
+        """
+        if self._folder is None:
+            return False
+        if self._written >= DISK_BUDGET:
+            return False
+        return _free_bytes(self._folder) - _frame_bytes() > DISK_FLOOR
+
     def write(self, bgr: np.ndarray) -> bool:
         """새 화면을 파일로 남긴다."""
         if self._folder is None:
@@ -149,8 +207,15 @@ class FrameStore:
             with open(path, "wb") as out:
                 out.write(encoded.tobytes())
         except OSError:
+            # 쓰다 만 조각이 남을 수 있다. 폴더째 지울 것이라 놔둬도 되지만,
+            # 자리가 없어 넘어진 마당이니 그 자리라도 곧바로 돌려준다.
+            try:
+                os.remove(path)
+            except OSError:
+                pass
             return False
         self._paths.append(path)
+        self._written += int(encoded.nbytes)
         return True
 
     def drop_last(self) -> None:
@@ -179,6 +244,8 @@ class FrameStore:
         self._live = None
         self._at = -1
         self._paths = []
+        self._written = 0
+        self.cut_short = False
         if self._folder is not None:
             shutil.rmtree(self._folder, ignore_errors=True)
             self._folder = None
@@ -195,8 +262,10 @@ class FrameRecorder(QObject):
     스레드에서만 뜰 수 있다), 견주고 만들어 쓰는 일은 뒷일꾼에게 넘긴다.
     """
 
-    #: 0.0 ~ 1.0. 게이지를 채우는 쪽에서 받는다.
+    #: 0.0 ~ 1.0. 얼마나 담겼는지 보여주는 쪽에서 받는다.
     progress = Signal(float)
+    #: 자리가 모자라 더 담지 못한다. 뒷일꾼이 알아채고 이 길로 알린다.
+    out_of_space = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -208,27 +277,44 @@ class FrameRecorder(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(INTERVAL_MS)
         self._timer.timeout.connect(self._tick)
+        # 뒷일꾼이 알려오면 떠오는 것부터 멈춘다. 스레드를 건너온 신호라
+        # 이 자리(UI 스레드)에서 받는다.
+        self.out_of_space.connect(self._timer.stop)
 
     # ------------------------------------------------------------ 뒷일꾼
 
-    @staticmethod
-    def _work(store: FrameStore, jobs: "queue.Queue") -> None:
-        """떠온 장을 견주고 PNG 로 만들어 쓴다. 이 스레드만 store 를 건드린다."""
+    def _work(self, store: FrameStore, jobs: "queue.Queue") -> None:
+        """떠온 장을 견주고 PNG 로 만들어 쓴다. 이 스레드만 store 를 건드린다.
+
+        자리가 모자라면 거기서 접는다. 못 쓴 장을 건너뛰고 계속하면 목록에
+        구멍이 나고, 그 구멍만큼 되감기의 시간축이 통째로 어긋난다.
+        """
         last: Optional[np.ndarray] = None
+        full = False
         while True:
             bgr = jobs.get()
             if bgr is None:              # 그만하라는 신호
                 jobs.task_done()
                 return
+            if full:
+                jobs.task_done()         # 이미 접었다. 남은 것은 흘려보낸다
+                continue
             if last is not None and np.array_equal(bgr, last):
                 store.repeat_last()      # 멈춘 화면 — 파일을 늘리지 않는다
-            elif store.write(bgr):
+            elif store.room_left() and store.write(bgr):
                 last = bgr
+            else:
+                full = True
+                store.cut_short = True
+                self.out_of_space.emit()
             jobs.task_done()
 
-    def start(self) -> None:
+    def start(self) -> bool:
+        """담기 시작한다. 자리가 없어 시작조차 못 하면 False."""
         self.discard()
         _sweep_stale()
+        if not room_to_start():
+            return False
         try:
             folder = tempfile.mkdtemp(prefix=TMP_PREFIX)
         except OSError:
@@ -242,6 +328,7 @@ class FrameRecorder(QObject):
         self._worker.start()
         self._tick()            # 누른 그 순간을 놓치지 않는다
         self._timer.start()
+        return True
 
     def _tick(self) -> None:
         screen = QGuiApplication.primaryScreen()
@@ -331,6 +418,11 @@ class HoldToRecordButton(QPushButton):
     않는데 붙들고 있으면 멈춘 것처럼 보인다.
 
     툭 누르고 떼면 한 장만 담겨, 예전처럼 지금 화면 하나로 고르게 된다.
+
+    자리가 모자라면 그 사정을 버튼에 적는다. 꾹 누르고 있는 도중에 창을
+    띄우면 그것이 곧 사고다 — 손은 아직 버튼에 있고 포커스는 팝업이 가져간다.
+    한 장도 담지 못했을 때만 알림까지 띄운다. 그때는 되감을 것도, 보여줄
+    것도 없어 버튼 글씨만으로는 놓치기 쉽다.
     """
 
     #: FrameStore — 담은 화면. 받은 쪽이 다 쓰고 discard() 해야 한다.
@@ -342,15 +434,21 @@ class HoldToRecordButton(QPushButton):
     PULSE_SECONDS = 1.1     # 한 번 숨 쉬는 데 걸리는 시간
     NEAR_END = 2.0          # 끝이 이만큼 남았을 때부터 알려준다
     FULL_PAUSE_MS = 320     # 다 찼다고 보여주고 넘어가기까지 두는 틈
+    NOTICE_MS = 6000        # 자리가 모자랐다는 말을 버튼에 두는 시간
 
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
         self._label = text
         self._frames = 0
         self._holding = False
+        #: 정말로 담기고 있는가. 자리가 없어 담지 못할 때도 버튼은 눌려 있다.
+        self._recording = False
+        #: 자리가 모자라 못 담았거나 중간에 끊겼는가.
+        self._short = False
         self._since = 0.0
         self._recorder = FrameRecorder(self)
         self._recorder.progress.connect(self._on_progress)
+        self._recorder.out_of_space.connect(self._on_out_of_space)
 
         # 담는 간격(200ms)으로는 깜박임도 초도 뚝뚝 끊긴다. 그리는 것만 따로,
         # 훨씬 촘촘히 돌린다.
@@ -364,10 +462,17 @@ class HoldToRecordButton(QPushButton):
         if event.button() == Qt.LeftButton and not self._holding:
             self._holding = True
             self._frames = 0
+            self._short = False
             self._since = time.monotonic()
-            self._recorder.start()
-            self._pulse.start()
-            self._retitle()
+            self._recording = self._recorder.start()
+            if self._recording:
+                self._pulse.start()
+                self._retitle()
+            else:
+                # 담을 자리가 없다. 그렇다고 좌표 집는 일까지 막을 이유는
+                # 없다 — 되감기만 빼고 예전처럼 지금 화면에서 고르게 둔다.
+                self._short = True
+                self.setText("용량이 모자라 되감기 없이 집습니다")
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -382,10 +487,46 @@ class HoldToRecordButton(QPushButton):
         self._rest()
         self.setDown(False)         # 다 차서 왔으면 아직 눌려 있다
         store = self._recorder.stop()
+        if self._short:
+            self._say_short(len(store))
         # 받는 쪽이 곧바로 피커를 띄운다. 마우스 사건이나 타이머 안에서 창을
         # 열면 그 자리에 이벤트 루프가 하나 더 얹히므로, 여기서 빠져나온 뒤에
         # 넘긴다.
         QTimer.singleShot(0, lambda: self.recorded.emit(store))
+
+    def _on_out_of_space(self) -> None:
+        """담는 중에 자리가 떨어졌다. 담긴 데까지 들고 마무리한다."""
+        self._short = True
+        self._finish()
+
+    def _say_short(self, kept: int) -> None:
+        """자리 때문에 짧아졌다는 것을 버튼에 남긴다.
+
+        잠시 뒤 원래 글씨로 돌아온다. 눌러야 할 버튼이 언제까지고 딴 말을
+        달고 있으면 그것대로 헷갈린다.
+        """
+        if kept:
+            self.setText(f"용량이 모자라 {kept / FPS:.1f}초까지만 담겼습니다")
+        else:
+            self.setText("용량이 모자라 담지 못했습니다")
+            self._warn_nothing_kept()
+        QTimer.singleShot(self.NOTICE_MS, self._restore_label)
+
+    @staticmethod
+    def _warn_nothing_kept() -> None:
+        """한 장도 담기지 않았을 때만. 버튼 글씨는 피커에 가려 놓치기 쉽다."""
+        try:
+            from ui_qt import toast
+
+            toast.show("되감기를 담지 못했습니다",
+                       "저장 용량이 모자랍니다. 자리를 비우면 다시 담깁니다.",
+                       sound=False, seconds=6.0)
+        except Exception:
+            pass            # 알림이 안 떠도 좌표 집는 일은 그대로 된다
+
+    def _restore_label(self) -> None:
+        if not self._holding:
+            self.setText(self._label)
 
     def _animate(self) -> None:
         """깜박임과 초를 한 박자에 굴린다."""
@@ -428,6 +569,7 @@ class HoldToRecordButton(QPushButton):
 
     def _rest(self) -> None:
         self._holding = False
+        self._recording = False
         self._frames = 0
         self._pulse.stop()
         self.setText(self._label)
@@ -444,7 +586,8 @@ class HoldToRecordButton(QPushButton):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if not self._holding:
+        # 눌려 있어도 담기지 않을 수 있다. 담기는 표시는 정말 담길 때만.
+        if not self._recording:
             return
 
         painter = QPainter(self)
