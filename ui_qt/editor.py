@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -26,12 +27,16 @@ from core.graph import Graph
 from core.graph import layout as auto_layout
 from ui_qt import dialogs, node_view, theme as T
 from ui_qt.editor_panels import BP_NARROW_PANELS, DRAG_PREFIX, Inspector, Palette
-from ui_qt.fields import DEFAULTS
+from ui_qt.fields import DEFAULTS, image_key
 from ui_qt.frameless import FramelessWindow
 from ui_qt.runner import MacroRunner, describe
 
 
 HISTORY_LIMIT = 60          # 되돌리기 단계 수
+
+#: 복사한 노드를 담는 클립보드 형식. 글자가 아니라 우리끼리 쓰는 형식이라
+#: 다른 프로그램에 붙여넣어도 아무 일이 없고, 편집기 창 사이에서는 오간다.
+NODE_CLIP = "application/x-clikey-nodes"
 
 
 class StateIconButton(QPushButton):
@@ -148,6 +153,8 @@ class EditorWindow(FramelessWindow):
         # 되돌리기: 통째 스냅샷을 쌓는다. 이동·연결·값 수정·추가·삭제를
         # 한 방식으로 덮을 수 있고, 되살릴 때 모델과 화면이 어긋나지 않는다.
         self._restoring = False
+        #: 여러 번 손대는 편집(붙여넣기처럼)을 되돌리기 한 칸으로 묶는 동안.
+        self._batching = False
         self._history = [self.model.to_dict()]
         self._hist_at = 0
         self.ng.viewer().moved_nodes.connect(self._after_change)
@@ -199,6 +206,13 @@ class EditorWindow(FramelessWindow):
         QShortcut(QKeySequence("Ctrl+Z"), self, self.undo)
         QShortcut(QKeySequence("Ctrl+Y"), self, self.redo)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self.redo)
+
+        # 붙여넣기는 캔버스 안에서만 듣는다. 속성 패널의 글자 칸에서는
+        # Ctrl+V 가 여느 때처럼 글자를 붙여넣어야 한다.
+        for keys, slot in ((QKeySequence.Copy, self.copy_selected),
+                           (QKeySequence.Paste, self.paste_clipboard)):
+            short = QShortcut(keys, self.ng.widget, slot)
+            short.setContext(Qt.WidgetWithChildrenShortcut)
 
     # ------------------------------------------------------------ 파일
 
@@ -259,6 +273,20 @@ class EditorWindow(FramelessWindow):
         self.sync_from_canvas()
         return self.model.to_dict()
 
+    @contextmanager
+    def one_undo_step(self):
+        """안에서 무엇을 몇 번 하든 되돌리기 한 칸으로 남긴다.
+
+        노드를 이어 붙이면 port_connected 가 그때마다 기록을 남긴다. 셋을
+        붙여넣고 Ctrl+Z 를 누르면 선 하나만 풀려서는 곤란하다.
+        """
+        was = self._batching
+        self._batching = True
+        try:
+            yield
+        finally:
+            self._batching = was
+
     def record_history(self) -> None:
         """바뀐 뒤의 상태를 기록한다.
 
@@ -266,7 +294,7 @@ class EditorWindow(FramelessWindow):
         NodeGraphQt 안에서 일어나는 변경은 그럴 자리가 없다. 그래서 변경된
         결과만 차곡차곡 쌓고, 되돌리기는 한 칸 앞 상태로 돌아가는 식으로 한다.
         """
-        if self._restoring:
+        if self._restoring or self._batching:
             return
         state = self._snapshot()
         if self._history[self._hist_at] == state:
@@ -436,6 +464,152 @@ class EditorWindow(FramelessWindow):
         self.ng.clear_selection()
         for ui in keep:
             ui.set_selected(True)
+
+    # ------------------------------------------------------------ 복사 · 붙여넣기
+
+    def copy_selected(self) -> None:
+        """고른 노드를 값과 서로 간의 연결까지 클립보드에 담는다."""
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QGuiApplication
+
+        self.sync_from_canvas()      # 연결은 캔버스가 진실이다
+
+        rows, keep = [], set()
+        for ui in self.ng.selected_nodes():
+            node = self.model.node(self.by_ui_name.get(ui.name()))
+            if node is None or node.type in node_view.FIXED_TYPES:
+                continue
+            x, y = ui.pos()
+            keep.add(node.id)
+            rows.append({"id": node.id, "type": node.type, "name": node.name,
+                         "params": node.params, "x": x, "y": y})
+        if not rows:
+            self.status.setText("복사할 노드를 고르세요")
+            return
+
+        # 고른 것들 사이의 연결만 가져간다. 밖으로 나가는 선은 붙여넣을 곳에
+        # 상대가 없다.
+        links = [{"src": e.src, "dst": e.dst, "port": e.port}
+                 for e in self.model.edges if e.src in keep and e.dst in keep]
+
+        mime = QMimeData()
+        mime.setData(NODE_CLIP, json.dumps(
+            {"nodes": rows, "edges": links}, ensure_ascii=False).encode("utf-8"))
+        QGuiApplication.clipboard().setMimeData(mime)
+
+        self.status.setText(f"노드 {len(rows)}개를 복사했습니다"
+                            + (f"  ·  연결 {len(links)}개" if links else ""))
+
+    def paste_clipboard(self) -> None:
+        """캔버스에서 Ctrl+V — 복사한 노드가 있으면 노드를, 없으면 그림을."""
+        from PySide6.QtGui import QGuiApplication
+
+        mime = QGuiApplication.clipboard().mimeData()
+        if mime is not None and mime.hasFormat(NODE_CLIP):
+            self._paste_nodes(bytes(mime.data(NODE_CLIP)))
+        else:
+            self.paste_image()
+
+    def _paste_nodes(self, blob: bytes) -> None:
+        try:
+            payload = json.loads(blob.decode("utf-8"))
+            rows = list(payload["nodes"])
+            links = list(payload.get("edges") or [])
+        except (ValueError, KeyError, TypeError):
+            self.status.setText("붙여넣을 수 없는 내용입니다")
+            return
+        if not rows:
+            return
+
+        left = min(r["x"] for r in rows)
+        top = min(r["y"] for r in rows)
+        origin_x, origin_y = self._paste_origin(left, top)
+
+        remap, made = {}, []
+        with self.one_undo_step():
+            for row in rows:
+                node = self.model.add_node(
+                    row["type"], dict(row.get("params") or {}),
+                    row.get("name") or "")
+                ui = node_view.add_node(node, self.ng,
+                                        (origin_x + row["x"] - left,
+                                         origin_y + row["y"] - top))
+                self.made[node.id] = ui
+                self.by_ui_name[ui.name()] = node.id
+                remap[row["id"]] = node.id
+                made.append(ui)
+
+            # 서로 간의 연결을 새 짝에게 다시 잇는다. 포트가 없어졌으면
+            # (선택지를 지운 채 복사한 경우처럼) 그 선만 빠진다.
+            for link in links:
+                source = self.made.get(remap.get(link.get("src")))
+                target = self.made.get(remap.get(link.get("dst")))
+                if source is None or target is None:
+                    continue
+                try:
+                    source.get_output(link["port"]).connect_to(
+                        target.get_input("in"), push_undo=False)
+                except Exception:
+                    pass
+
+            self.ng.clear_selection()
+            for ui in made:
+                ui.set_selected(True)
+
+        if len(made) == 1:
+            self._show_in_inspector(self.by_ui_name[made[0].name()])
+        self._refresh_status()
+        self.record_history()          # 통째로 한 칸
+        self._check_dirty()
+        self.status.setText(f"노드 {len(made)}개를 붙여넣었습니다")
+
+    def _paste_origin(self, left: float, top: float):
+        """붙여넣을 자리의 왼쪽 위. 커서가 캔버스 위면 그 자리, 아니면 비켜서."""
+        from PySide6.QtGui import QCursor
+
+        viewer = self.ng.viewer()
+        spot = viewer.viewport().mapFromGlobal(QCursor.pos())
+        if viewer.viewport().rect().contains(spot):
+            at = viewer.mapToScene(spot)
+            return at.x(), at.y()
+        # 원본 위로 정확히 겹치면 붙였는지 알 수 없다 — 복제와 같은 만큼 민다
+        return left + 40, top + 40
+
+    def paste_image(self) -> None:
+        """고른 노드에 클립보드 그림을 바로 붙인다.
+
+        찾을 그림은 대개 화면을 오려 붙이는 것으로 만든다. 노드를 고른 채
+        Ctrl+V 하면 속성 패널까지 가지 않고 그 자리에서 끝난다.
+        """
+        from PySide6.QtGui import QGuiApplication, QPixmap
+
+        from core import library
+
+        selected = self.ng.selected_nodes()
+        if len(selected) != 1:
+            self.status.setText("그림을 붙일 노드 하나를 고르세요")
+            return
+
+        node = self.model.node(self.by_ui_name.get(selected[0].name()))
+        key = image_key(node.type) if node is not None else ""
+        if not key:
+            self.status.setText("이 노드는 그림을 받지 않습니다")
+            return
+
+        shot = QGuiApplication.clipboard().image()
+        if shot.isNull():
+            self.status.setText("클립보드에 이미지가 없습니다")
+            return
+        try:
+            saved = library.save_image(QPixmap.fromImage(shot))
+        except OSError as exc:
+            self.status.setText(str(exc))
+            return
+
+        self._on_param_changed(node, key, str(saved))
+        self._show_in_inspector(node.id)          # 미리보기를 새 그림으로
+        self.status.setText(f"{saved.name} 을(를) 붙였습니다  "
+                            f"·  {shot.width()} × {shot.height()}")
 
     def duplicate_selected(self) -> None:
         """고른 노드를 값까지 그대로 복제한다 (연결은 잇지 않는다)."""

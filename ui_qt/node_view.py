@@ -861,6 +861,88 @@ def _click_only_selects_pipes() -> None:
     NodeViewer._clikey_pipe_click_only = True
 
 
+def remap_modifiers(viewer, ctrl: bool, shift: bool, alt: bool) -> None:
+    """뷰어가 보는 조합키 상태를 실제로 눌린 것에 맞춘다.
+
+    Ctrl 은 더하기로 친다. Alt 가 함께라면 더하기 쪽은 손대지 않는다 —
+    화면 밀기(Alt)와 선 자르기(Alt+Shift)가 같은 값을 읽기 때문이다.
+    """
+    viewer.ALT_state = alt
+    if alt:
+        return
+    viewer.CTRL_state = False
+    viewer.SHIFT_state = ctrl or shift
+    if ctrl:
+        # 원본이 띄운 "CTRL: Deselect Nodes" 는 이제 사실이 아니다
+        viewer._cursor_text.setPlainText("")
+        viewer._cursor_text.setVisible(False)
+
+
+def _ctrl_adds_to_selection() -> None:
+    """Ctrl 을 누른 채 노드를 눌러 하나씩 더 고른다.
+
+    NodeGraphQt 는 Maya 식이라 Shift 가 더하기, Ctrl 이 빼기다. Windows 에서
+    여러 개를 고르는 손버릇은 Ctrl 이라, 눌러 봐도 골라지기는커녕 골라둔 것이
+    풀려 고장으로 보인다. 뷰어에게는 Shift 라고 알려 준다.
+
+    Shift 는 그대로 둔다 — 이미 익숙한 손을 뺏을 이유가 없다.
+    """
+    if getattr(NodeViewer, "_clikey_ctrl_adds", False):
+        return
+
+    def held(event, released=None):
+        """(ctrl, shift, alt). `released` 는 방금 뗀 키.
+
+        뗀 사건의 modifiers 는 플랫폼에 따라 그 키를 아직 달고 온다. 그대로
+        믿으면 손을 뗀 뒤에도 계속 더하기가 된다.
+        """
+        mods = event.modifiers()
+        ctrl = bool(mods & QtCore.Qt.ControlModifier)
+        shift = bool(mods & QtCore.Qt.ShiftModifier)
+        alt = bool(mods & QtCore.Qt.AltModifier)
+        if released == QtCore.Qt.Key_Control:
+            ctrl = False
+        elif released == QtCore.Qt.Key_Shift:
+            shift = False
+        elif released == QtCore.Qt.Key_Alt:
+            alt = False
+        return ctrl, shift, alt
+
+    original_press = NodeViewer.mousePressEvent
+    original_key_press = NodeViewer.keyPressEvent
+    original_key_release = NodeViewer.keyReleaseEvent
+
+    def mouse_press(self, event):
+        # 상태 값은 키 이벤트로만 갱신된다. 캔버스가 초점을 잡기 전에 Ctrl 을
+        # 눌렀으면 그 값이 비어 있고, Alt+Tab 처럼 누른 채 창을 떠나면 뗀 것을
+        # 못 듣고 눌린 채로 남는다. 누른 사건이 들고 온 것이 진실이다.
+        remap_modifiers(self, *held(event))
+        return original_press(self, event)
+
+    def key_press(self, event):
+        original_key_press(self, event)
+        remap_modifiers(self, *held(event))
+
+    def key_release(self, event):
+        original_key_release(self, event)
+        remap_modifiers(self, *held(event, released=event.key()))
+
+    original_focus_out = NodeViewer.focusOutEvent
+
+    def focus_out(self, event):
+        # 누른 채 창을 떠나면 뗀 것을 듣지 못한다. Alt 가 눌린 채로 남으면
+        # 왼쪽 끌기가 화면 밀기가 되어 노드를 고를 수 없다 — 아무 키나 누르면
+        # 풀려서, 왜 나았는지도 알기 어렵다. 떠날 때 잊는다.
+        self.clear_key_state()
+        return original_focus_out(self, event)
+
+    NodeViewer.mousePressEvent = mouse_press
+    NodeViewer.keyPressEvent = key_press
+    NodeViewer.keyReleaseEvent = key_release
+    NodeViewer.focusOutEvent = focus_out
+    NodeViewer._clikey_ctrl_adds = True
+
+
 UNDO_KEYS = {"Ctrl+Z", "Ctrl+Y", "Ctrl+Shift+Z", "Alt+Backspace",
              "Alt+Shift+Backspace"}
 
@@ -889,6 +971,7 @@ def make_graph_widget() -> NodeGraph:
     _install_port_colors()
     _quiet_pipe_hover()
     _click_only_selects_pipes()
+    _ctrl_adds_to_selection()
 
     ng = NodeGraph(layout_direction=LayoutDirectionEnum.VERTICAL.value)
 

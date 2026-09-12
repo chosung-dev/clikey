@@ -170,6 +170,15 @@ _QT_SINGLE = {
     "print": "print screen",
     "capslock": "caps lock",
     "numlock": "num lock",
+
+    # tkinter 시절 앱이 저장한 이름들. 그때는 X11 표기를 그대로 적었는데
+    # keyboard 는 이 다섯만 알아듣지 못한다. 옛 매크로가 조용히 먹통이 되지
+    # 않게 남겨둔다 — 지금 편집기는 이런 이름을 만들지 않는다.
+    "prior": "page up",
+    "next": "page down",
+    "control_l": "ctrl", "control_r": "ctrl",
+    "shift_l": "shift", "shift_r": "shift",
+    "alt_l": "alt", "alt_r": "alt",
 }
 
 

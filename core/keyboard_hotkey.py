@@ -1,6 +1,12 @@
 # core/keyboard_hotkey.py
+"""keyboard 라이브러리를 늦게 불러오기 위한 자리.
+
+임포트만으로 전역 후킹이 딸려와 시작이 느려진다. 실제로 키를 다룰 때에만
+불러온다.
+
+키 이름을 옮기는 일은 core/hotkeys.py 하나가 맡는다.
+"""
 from __future__ import annotations
-from typing import Optional
 
 # Lazy import for faster startup
 keyboard = None
@@ -11,41 +17,3 @@ def _get_keyboard():
         import keyboard as kb
         keyboard = kb
     return keyboard
-
-
-def normalize_key_for_keyboard(keysym: str) -> Optional[str]:
-    """Normalize key name from Tkinter/X11 format to keyboard library format."""
-    if not keysym:
-        return None
-
-    if len(keysym) == 1:
-        return keysym.lower()
-
-    mapping = {
-        "Return": "enter",
-        "Escape": "esc",
-        "BackSpace": "backspace",
-        "Tab": "tab",
-        "space": "space",
-        "Up": "up",
-        "Down": "down",
-        "Left": "left",
-        "Right": "right",
-        "Home": "home",
-        "End": "end",
-        "Prior": "page up",
-        "Next": "page down",
-        "Insert": "insert",
-        "Delete": "delete",
-        "Control_L": "ctrl",
-        "Control_R": "ctrl",
-        "Shift_L": "shift",
-        "Shift_R": "shift",
-        "Alt_L": "alt",
-        "Alt_R": "alt",
-    }
-
-    if keysym.startswith("F") and keysym[1:].isdigit():
-        return keysym.lower()
-
-    return mapping.get(keysym, keysym.lower())

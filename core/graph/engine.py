@@ -468,9 +468,9 @@ class GraphExecutor:
 
     @staticmethod
     def _send_key(key: str) -> bool:
-        from core.keyboard_hotkey import normalize_key_for_keyboard
+        from core import hotkeys
 
-        name = normalize_key_for_keyboard(key)
+        name = hotkeys.single_key(key)
         if not name:
             return False
         try:
@@ -525,9 +525,9 @@ class GraphExecutor:
     # --- 키보드 ---
 
     def _key_action(self, node: Node, action: str) -> str:
-        from core.keyboard_hotkey import normalize_key_for_keyboard
+        from core import hotkeys
 
-        key = normalize_key_for_keyboard(node.params.get("key") or "")
+        key = hotkeys.single_key(node.params.get("key") or "")
         if not key:
             return "next"
         kb = _get_keyboard()

@@ -281,7 +281,7 @@ class ScreenPicker(QDialog):
         painter.drawEllipse(QPoint(track.x() + done, track.center().y()), 6, 6)
 
     def _draw_hint(self, painter: QPainter) -> None:
-        text = "클릭해서 이 지점 선택  ·  Esc 취소"
+        text = "클릭 또는 Enter 로 이 지점 선택  ·  Esc 취소"
         font = QFont(painter.font())
         font.setPointSizeF(10)
         painter.setFont(font)
@@ -306,16 +306,31 @@ class ScreenPicker(QDialog):
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:
             return
-        at = event.position().toPoint()
+        self.take(event.position().toPoint())
+
+    def take(self, at) -> None:
+        """그 자리를 골라 창을 닫는다."""
         global_at = at + self.origin
         self.result = PickResult(global_at.x(), global_at.y(),
                                  self.color_at(global_at))
         self.accept()
 
+    def take_at_cursor(self) -> None:
+        """지금 겨누고 있는 자리를 고른다 (엔터).
+
+        멈춘 화면에서 한 픽셀을 짚을 때는 손을 대는 순간 커서가 밀리기 쉽다.
+        자리를 맞춰 놓고 엔터로 확정하면 겨눈 그대로 잡힌다.
+        """
+        self.take(self.cursor_at)
+
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key_Escape:
             self.reject()
+            return
+        # 본 자판과 숫자판의 엔터가 따로다
+        if key in (Qt.Key_Return, Qt.Key_Enter):
+            self.take_at_cursor()
             return
         # 왼손만으로도 되감을 수 있게 A·D 를 나란히 둔다. 오른손은 고를 자리를
         # 겨누고 있어 화살표까지 오가기 번거롭다.
@@ -433,6 +448,10 @@ class RegionPicker(ScreenPicker):
         painter.drawRoundedRect(box, 19, 19)
         painter.setPen(QColor(255, 255, 255))
         painter.drawText(box, Qt.AlignCenter, text)
+
+    def take_at_cursor(self) -> None:
+        # 영역은 끌어야 정해진다. 한 점만으로는 고를 것이 없다.
+        pass
 
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -728,8 +729,17 @@ class ImageField(QWidget):
         cl.setSpacing(8)
 
         self.thumb = QLabel()
-        self.thumb.setMinimumHeight(self.PREVIEW_H)
+        self.thumb.setFixedHeight(self.PREVIEW_H)
         self.thumb.setAlignment(Qt.AlignCenter)
+        # QLabel 은 그림만 한 자리를 내놓으라고 한다. 속성 패널은 너비가
+        # 정해져 있어, 넓은 그림이 들어오면 패널이 그만큼 밀려 버튼이 잘렸다.
+        # 자리 요구를 접고, 주어진 만큼에 맞춰 그린다.
+        self.thumb.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.thumb.setMinimumWidth(1)
+        # 배치는 부모의 resizeEvent 뒤에 일어난다. 칸의 너비로 미리 셈하면 한
+        # 박자 묵은 값이라 그림이 라벨 밖으로 삐져나간다. 라벨을 직접 지켜본다.
+        self.thumb.installEventFilter(self)
+        self._drawn_at = -1
         cl.addWidget(self.thumb)
 
         self.name = QLabel()
@@ -765,6 +775,7 @@ class ImageField(QWidget):
         from pathlib import Path
 
         self._shot = None
+        self._drawn_at = -1
         if not self.path:
             self.thumb.setPixmap(QPixmap())
             self.thumb.setText("이미지 없음")
@@ -796,17 +807,29 @@ class ImageField(QWidget):
         """칸보다 큰 그림만 줄인다. 작은 그림을 늘리면 뭉개져 알아보기 어렵다."""
         if self._shot is None:
             return
-        box_w = max(self.thumb.width(), 120)
+        box_w = self._box_width()
+        if box_w == self._drawn_at:
+            return
+        self._drawn_at = box_w
         shot = self._shot
         if shot.width() > box_w or shot.height() > self.PREVIEW_H:
             shot = shot.scaled(box_w, self.PREVIEW_H,
                                Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.thumb.setPixmap(shot)
 
-    def resizeEvent(self, event):
+    def _box_width(self) -> int:
+        """미리보기가 쓸 수 있는 가로 — 라벨이 실제로 받은 만큼.
+
+        자리를 요구하지 않게 해 두었으므로(Ignored), 라벨의 너비는 그림이
+        아니라 패널이 정한다. 그래서 이 값을 되물어도 늘어나지 않는다.
+        """
+        return max(self.thumb.width(), 60)
+
+    def eventFilter(self, obj, event):
         # 좁은 창에서는 속성 패널이 줄어든다 — 미리보기도 따라 줄인다
-        super().resizeEvent(event)
-        self._draw_preview()
+        if obj is self.thumb and event.type() == QEvent.Resize:
+            self._draw_preview()
+        return super().eventFilter(obj, event)
 
     def _detail(self, text: str, bad: bool = False) -> None:
         self.detail.setText(text)
@@ -1180,6 +1203,18 @@ FIELDS: Dict[str, List[Spec]] = {
          "낮추면 조금 달라도 찾고, 높이면 거의 같아야 찾습니다"),
     ],
 }
+
+def image_key(node_type: str) -> str:
+    """그 노드의 그림 칸 이름. 없으면 빈 문자열.
+
+    위 표를 그대로 읽는다 — 나중에 다른 노드가 그림을 갖게 되어도
+    붙여넣기가 저절로 따라온다.
+    """
+    for key, _label, kind, _options, _hint in FIELDS.get(node_type, ()):
+        if kind == "image":
+            return key
+    return ""
+
 
 DEFAULTS: Dict[str, Dict[str, Any]] = {
     "start": {"hotkey": "", "step_delay": 0.03, "mouse_move_duration": 0.0},

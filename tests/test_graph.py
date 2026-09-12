@@ -682,18 +682,12 @@ def act_graph(region=(100, 100, 500, 400), rounds=4):
 
 def act_run(turns, region=(100, 100, 500, 400), rounds=4):
     """가짜 손을 끼우고 돌린다. (결과, 시킨 일, 지나간 노드)."""
-    import types as _types
-
     from core.graph import engine as _engine
 
     hand = FakeHand()
-    saved = (_engine._mouse, _engine._keyboard,
-             sys.modules.get("core.keyboard_hotkey"))
+    saved = (_engine._mouse, _engine._keyboard)
     _engine._mouse = hand
     _engine._keyboard = hand
-    sys.modules["core.keyboard_hotkey"] = _types.SimpleNamespace(
-        normalize_key_for_keyboard=lambda k: k.lower().strip() or "",
-        _get_keyboard=lambda: hand)
     try:
         answers = iter(turns)
         visited = []
@@ -702,11 +696,7 @@ def act_run(turns, region=(100, 100, 500, 400), rounds=4):
                            on_node=visited.append)
         return ex.run(), hand.done, visited
     finally:
-        _engine._mouse, _engine._keyboard = saved[0], saved[1]
-        if saved[2] is not None:
-            sys.modules["core.keyboard_hotkey"] = saved[2]
-        else:
-            sys.modules.pop("core.keyboard_hotkey", None)
+        _engine._mouse, _engine._keyboard = saved
 
 
 def test_act_node_has_two_fixed_ports():
